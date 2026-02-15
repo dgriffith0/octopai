@@ -48,7 +48,7 @@ pub fn fetch_issues(repo: &str, state: StateFilter, assignee: AssigneeFilter) ->
         "--state".to_string(),
         state.label().to_string(),
         "--json".to_string(),
-        "number,title,body,labels".to_string(),
+        "number,title,body,labels,state".to_string(),
         "--limit".to_string(),
         "30".to_string(),
     ];
@@ -97,8 +97,12 @@ pub fn fetch_issues(repo: &str, state: StateFilter, assignee: AssigneeFilter) ->
                 })
                 .unwrap_or_default();
 
+            let issue_state = issue["state"].as_str().unwrap_or("OPEN").to_uppercase();
+
             let (tag, tag_color) = if let Some(first) = labels.first() {
                 (first.clone(), label_color(first))
+            } else if issue_state == "CLOSED" {
+                ("closed".to_string(), Color::Red)
             } else {
                 ("open".to_string(), Color::Green)
             };
