@@ -735,7 +735,31 @@ fn render_column(
     };
 
     let card_height = 4u16;
-    let mut constraints: Vec<Constraint> = visible_cards
+    let max_visible = (cards_area.height / card_height) as usize;
+    let total = visible_cards.len();
+
+    // Calculate scroll offset to keep the selected card visible
+    let scroll_offset = if let Some(sel) = selected {
+        if max_visible == 0 {
+            0
+        } else if sel >= max_visible {
+            sel - max_visible + 1
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let display_count = max_visible.min(total.saturating_sub(scroll_offset));
+    let display_cards: Vec<&Card> = visible_cards
+        .iter()
+        .skip(scroll_offset)
+        .take(display_count)
+        .copied()
+        .collect();
+
+    let mut constraints: Vec<Constraint> = display_cards
         .iter()
         .map(|_| Constraint::Length(card_height))
         .collect();
@@ -746,8 +770,9 @@ fn render_column(
         .constraints(constraints)
         .split(cards_area);
 
-    for (i, card) in visible_cards.iter().enumerate() {
-        let is_selected = selected.is_some_and(|s| s == i);
+    for (i, card) in display_cards.iter().enumerate() {
+        let original_idx = scroll_offset + i;
+        let is_selected = selected.is_some_and(|s| s == original_idx);
         let is_related = !is_selected && related_ids.contains(&card.id);
         render_card(frame, slots[i], card, is_selected, is_related);
     }
