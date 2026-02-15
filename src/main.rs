@@ -763,7 +763,19 @@ fn fetch_sessions() -> Vec<Card> {
                     "working"
                 }
             } else {
-                "finished"
+                // Claude process not detected — check if the Claude pane
+                // (.1) still exists.  If it does, Claude is likely still
+                // starting up; only mark "finished" when the pane is gone
+                // (i.e. the session has a single pane left).
+                let pane_count = status
+                    .as_ref()
+                    .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+                    .unwrap_or(0);
+                if pane_count > 1 {
+                    "working" // Claude pane exists but process not yet detected
+                } else {
+                    "finished"
+                }
             };
 
             let (tag, tag_color, description) = match claude_state {
