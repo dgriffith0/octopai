@@ -2269,10 +2269,10 @@ fn render_column(
 fn render_card(frame: &mut Frame, area: Rect, card: &Card, is_selected: bool, is_related: bool) {
     let border_style = if is_selected {
         Style::default()
-            .fg(Color::White)
+            .fg(Color::Rgb(255, 200, 50))
             .add_modifier(Modifier::BOLD)
     } else if is_related {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Rgb(100, 100, 100))
     } else {
         Style::default().fg(Color::DarkGray)
     };
