@@ -39,7 +39,7 @@ fn main() -> Result<()> {
 
     // Start the Unix socket event server for Claude hook events
     let session_states: SessionStates = Arc::new(Mutex::new(HashMap::new()));
-    let _ = start_event_socket(Arc::clone(&session_states));
+    start_event_socket(Arc::clone(&session_states))?;
 
     enable_raw_mode()?;
     io::stdout().execute(EnterAlternateScreen)?;

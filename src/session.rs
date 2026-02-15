@@ -46,13 +46,19 @@ pub fn fetch_sessions(socket_states: &SessionStates) -> Vec<Card> {
                 if let Some(content) = pane_content {
                     let trimmed = content.trim_end();
                     let last_lines: Vec<&str> = trimmed.lines().rev().take(5).collect();
-                    let waiting = last_lines.iter().any(|l| {
+                    let has_permission = last_lines.iter().any(|l| {
+                        let l = l.trim();
+                        l.contains("Allow") || l.contains("Deny") || l.contains("allow once")
+                    });
+                    let has_prompt = last_lines.iter().any(|l| {
                         let l = l.trim();
                         l.starts_with('❯')
                             || l.starts_with('>')
                             || l.contains("What would you like")
                     });
-                    if waiting {
+                    if has_permission {
+                        "permission"
+                    } else if has_prompt {
                         "idle"
                     } else {
                         "working"
@@ -63,10 +69,11 @@ pub fn fetch_sessions(socket_states: &SessionStates) -> Vec<Card> {
             };
 
             let (tag, tag_color, description) = match claude_state {
-                "working" => ("working", Color::Green, "Claude is processing..."),
-                "waiting" => ("waiting", Color::Yellow, "Waiting for input"),
-                "idle" => ("idle", Color::Blue, "Ready for prompts"),
-                _ => ("working", Color::Green, "Claude is processing..."),
+                "processing" => ("processing", Color::Cyan, "Claude is thinking..."),
+                "working" => ("working", Color::Green, "Using tools..."),
+                "permission" => ("permission", Color::Yellow, "Awaiting permission"),
+                "idle" => ("idle", Color::DarkGray, "Waiting for prompt"),
+                _ => ("unknown", Color::DarkGray, "Unknown state"),
             };
 
             // Link to the related issue card

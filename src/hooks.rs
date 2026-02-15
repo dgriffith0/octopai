@@ -9,24 +9,33 @@ use crate::models::{SessionStates, SOCKET_PATH};
 pub fn start_event_socket(states: SessionStates) -> io::Result<()> {
     let _ = fs::remove_file(SOCKET_PATH);
     let listener = UnixListener::bind(SOCKET_PATH)?;
+    listener.set_nonblocking(false)?;
 
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             match stream {
                 Ok(mut stream) => {
                     let mut buf = String::new();
-                    let _ = stream.read_to_string(&mut buf);
-                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(&buf) {
-                        if let (Some(session), Some(status)) =
-                            (event["session"].as_str(), event["status"].as_str())
-                        {
-                            if let Ok(mut states) = states.lock() {
-                                states.insert(session.to_string(), status.to_string());
+                    if stream.read_to_string(&mut buf).is_ok() && !buf.is_empty() {
+                        // Support multiple JSON messages separated by newlines
+                        for line in buf.lines() {
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
+                                if let (Some(session), Some(status)) =
+                                    (event["session"].as_str(), event["status"].as_str())
+                                {
+                                    if let Ok(mut states) = states.lock() {
+                                        states.insert(session.to_string(), status.to_string());
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                Err(_) => break,
+                Err(_) => continue,
             }
         }
     });
@@ -50,7 +59,16 @@ SESSION=$(basename "$PWD" | grep -o 'issue-[0-9]*')
 [ -z "$SESSION" ] && exit 0
 SOCKET="{socket}"
 [ -S "$SOCKET" ] || exit 0
-printf '{{"session":"%s","status":"%s"}}\n' "$SESSION" "$STATUS" | nc -w1 -U "$SOCKET" 2>/dev/null
+python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    s.connect('$SOCKET')
+    s.sendall(b'{{\"session\":\"$SESSION\",\"status\":\"$STATUS\"}}\n')
+    s.close()
+except:
+    pass
+" 2>/dev/null
 exit 0
 "#,
         socket = SOCKET_PATH
@@ -85,8 +103,11 @@ pub fn write_worktree_hook_config(
 
     let hook_config = serde_json::json!({
         "PreToolUse": [{"hooks": [{"type": "command", "command": format!("'{}' working", hook_script), "async": true}]}],
-        "Stop": [{"hooks": [{"type": "command", "command": format!("'{}' waiting", hook_script)}]}],
-        "Notification": [{"matcher": "idle_prompt", "hooks": [{"type": "command", "command": format!("'{}' waiting", hook_script), "async": true}]}]
+        "PostToolUse": [{"hooks": [{"type": "command", "command": format!("'{}' working", hook_script), "async": true}]}],
+        "PermissionRequest": [{"hooks": [{"type": "command", "command": format!("'{}' permission", hook_script), "async": true}]}],
+        "UserPromptSubmit": [{"hooks": [{"type": "command", "command": format!("'{}' processing", hook_script), "async": true}]}],
+        "Stop": [{"hooks": [{"type": "command", "command": format!("'{}' idle", hook_script)}]}],
+        "Notification": [{"matcher": "idle_prompt", "hooks": [{"type": "command", "command": format!("'{}' idle", hook_script), "async": true}]}]
     });
 
     settings["hooks"] = hook_config;
