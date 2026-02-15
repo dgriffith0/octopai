@@ -14,7 +14,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
     Frame, Terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -260,14 +260,7 @@ fn fetch_issues(repo: &str) -> Vec<Card> {
 fn create_issue(repo: &str, title: &str, body: &str) -> std::result::Result<(), String> {
     let output = Command::new("gh")
         .args([
-            "issue",
-            "create",
-            "--repo",
-            repo,
-            "--title",
-            title,
-            "--body",
-            body,
+            "issue", "create", "--repo", repo, "--title", title, "--body", body,
         ])
         .output()
         .map_err(|e| format!("Failed to run gh: {}", e))?;
@@ -353,13 +346,7 @@ fn fetch_worktrees() -> Vec<Card> {
 
 fn close_issue(repo: &str, number: u64) -> std::result::Result<(), String> {
     let output = Command::new("gh")
-        .args([
-            "issue",
-            "close",
-            "--repo",
-            repo,
-            &number.to_string(),
-        ])
+        .args(["issue", "close", "--repo", repo, &number.to_string()])
         .output()
         .map_err(|e| format!("Failed to run gh: {}", e))?;
 
@@ -388,9 +375,7 @@ fn remove_worktree(path: &str, branch: &str) -> std::result::Result<(), String> 
     }
 
     // Delete the branch
-    let _ = Command::new("git")
-        .args(["branch", "-D", branch])
-        .output();
+    let _ = Command::new("git").args(["branch", "-D", branch]).output();
 
     Ok(())
 }
@@ -418,7 +403,16 @@ fn create_worktree_and_session(
 
     // Create tmux session with neovim in the first pane
     let output = Command::new("tmux")
-        .args(["new-session", "-d", "-s", &branch, "-c", &worktree_path, "nvim", "."])
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &branch,
+            "-c",
+            &worktree_path,
+            "nvim",
+            ".",
+        ])
         .output()
         .map_err(|e| format!("Failed to create tmux session: {}", e))?;
 
@@ -627,9 +621,8 @@ fn main() -> Result<()> {
                                     app.repo_select.error = None;
                                     app.repo_select.phase = RepoSelectPhase::Loading;
                                     // We need to redraw to show loading state, then fetch
-                                    terminal.draw(|frame| {
-                                        ui_repo_select(frame, &app.repo_select)
-                                    })?;
+                                    terminal
+                                        .draw(|frame| ui_repo_select(frame, &app.repo_select))?;
 
                                     match fetch_repos(&owner) {
                                         Ok(repos) => {
@@ -844,10 +837,8 @@ fn main() -> Result<()> {
                                                 Ok(()) => {
                                                     app.issues = fetch_issues(&repo);
                                                     app.clamp_selected();
-                                                    app.status_message = Some(format!(
-                                                        "Closed issue #{}",
-                                                        number
-                                                    ));
+                                                    app.status_message =
+                                                        Some(format!("Closed issue #{}", number));
                                                 }
                                                 Err(e) => {
                                                     app.status_message =
@@ -889,11 +880,8 @@ fn main() -> Result<()> {
                                         app.mode = Mode::Normal;
                                     }
                                     KeyCode::Tab => {
-                                        modal.active_field = if modal.active_field == 0 {
-                                            1
-                                        } else {
-                                            0
-                                        };
+                                        modal.active_field =
+                                            if modal.active_field == 0 { 1 } else { 0 };
                                     }
                                     KeyCode::Enter if modal.active_field == 0 => {
                                         modal.active_field = 1;
@@ -903,8 +891,7 @@ fn main() -> Result<()> {
                                     {
                                         let title = modal.title.trim().to_string();
                                         if title.is_empty() {
-                                            modal.error =
-                                                Some("Title cannot be empty".to_string());
+                                            modal.error = Some("Title cannot be empty".to_string());
                                         } else {
                                             let body = modal.body.clone();
                                             match create_issue(&app.repo, &title, &body) {
@@ -1192,10 +1179,7 @@ fn ui(frame: &mut Frame, app: &App) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            "  (Enter to change)",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled("  (Enter to change)", Style::default().fg(Color::DarkGray)),
     ]))
     .block(repo_block);
     frame.render_widget(repo_text, outer[0]);
@@ -1378,10 +1362,10 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // title input
-            Constraint::Min(3),   // body input
+            Constraint::Length(3),                             // title input
+            Constraint::Min(3),                                // body input
             Constraint::Length(if has_error { 1 } else { 0 }), // error
-            Constraint::Length(1), // hint
+            Constraint::Length(1),                             // hint
         ])
         .split(inner);
 
@@ -1426,7 +1410,8 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal) {
     }
     let body_paragraph = Paragraph::new(body_text)
         .style(Style::default().fg(Color::White))
-        .block(body_block);
+        .block(body_block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(body_paragraph, chunks[1]);
 
     // Error
@@ -1470,14 +1455,21 @@ fn ui_confirm_modal(frame: &mut Frame, modal: &ConfirmModal) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let message = Paragraph::new(modal.message.as_str())
-        .style(Style::default().fg(Color::White));
+    let message = Paragraph::new(modal.message.as_str()).style(Style::default().fg(Color::White));
     frame.render_widget(message, chunks[0]);
 
     let hint = Paragraph::new(Line::from(vec![
-        Span::styled("y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "y",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" confirm  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("n", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "n",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" cancel", Style::default().fg(Color::DarkGray)),
     ]));
     frame.render_widget(hint, chunks[1]);
