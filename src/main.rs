@@ -75,6 +75,7 @@ struct Card {
     url: Option<String>,
     pr_number: Option<u64>,
     is_draft: Option<bool>,
+    is_merged: Option<bool>,
 }
 
 enum MergeStrategy {
@@ -115,6 +116,9 @@ enum ConfirmAction {
     MergePr {
         number: u64,
         strategy: MergeStrategy,
+    },
+    RevertPr {
+        number: u64,
     },
 }
 
@@ -345,6 +349,7 @@ fn fetch_issues(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Vec
                 url: None,
                 pr_number: None,
                 is_draft: None,
+                is_merged: None,
             }
         })
         .collect()
@@ -359,7 +364,7 @@ fn fetch_prs(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Vec<Ca
         "--state".to_string(),
         state.label().to_string(),
         "--json".to_string(),
-        "number,title,body,isDraft,url,headRefName,state".to_string(),
+        "number,title,body,isDraft,url,headRefName,state,mergedAt".to_string(),
         "--limit".to_string(),
         "30".to_string(),
     ];
@@ -388,6 +393,7 @@ fn fetch_prs(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Vec<Ca
             let is_draft = pr["isDraft"].as_bool().unwrap_or(false);
             let url = pr["url"].as_str().unwrap_or("").to_string();
             let branch = pr["headRefName"].as_str().unwrap_or("").to_string();
+            let is_merged = pr["mergedAt"].as_str().is_some();
 
             let description = if body.len() > 80 {
                 format!("{}...", &body[..77])
@@ -421,6 +427,7 @@ fn fetch_prs(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Vec<Ca
                 url: Some(url),
                 pr_number: Some(number),
                 is_draft: Some(is_draft),
+                is_merged: Some(is_merged),
             }
         })
         .collect()
@@ -528,6 +535,7 @@ fn fetch_worktrees() -> Vec<Card> {
             url: None,
             pr_number: None,
             is_draft: None,
+            is_merged: None,
         });
     }
 
@@ -842,6 +850,7 @@ fn fetch_sessions() -> Vec<Card> {
                 url: None,
                 pr_number: None,
                 is_draft: None,
+                is_merged: None,
             }
         })
         .collect()
@@ -1372,6 +1381,26 @@ fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                                KeyCode::Char('V') if app.active_section == 3 => {
+                                    if let Some(card) = app.pull_requests.get(app.selected_card[3])
+                                    {
+                                        if let Some(number) = card.pr_number {
+                                            if card.is_merged != Some(true) {
+                                                app.status_message =
+                                                    Some("Can only revert merged PRs".to_string());
+                                            } else {
+                                                app.confirm_modal = Some(ConfirmModal {
+                                                    message: format!(
+                                                        "Revert PR #{}? This will create a new PR that undoes its changes.",
+                                                        number
+                                                    ),
+                                                    on_confirm: ConfirmAction::RevertPr { number },
+                                                });
+                                                app.mode = Mode::Confirming;
+                                            }
+                                        }
+                                    }
+                                }
                                 KeyCode::Char('M') if app.active_section == 3 => {
                                     if let Some(card) = app.pull_requests.get(app.selected_card[3])
                                     {
@@ -1521,6 +1550,79 @@ fn main() -> Result<()> {
                                                     app.last_refresh = Instant::now();
                                                     app.status_message =
                                                         Some(format!("Killed session '{}'", name));
+                                                }
+                                                Ok(o) => {
+                                                    let stderr = String::from_utf8_lossy(&o.stderr);
+                                                    app.status_message =
+                                                        Some(format!("Error: {}", stderr.trim()));
+                                                }
+                                                Err(e) => {
+                                                    app.status_message =
+                                                        Some(format!("Error: {}", e));
+                                                }
+                                            }
+                                        }
+                                        ConfirmAction::RevertPr { number } => {
+                                            let repo = app.repo.clone();
+                                            // Get the PR's GraphQL node ID
+                                            let id_output = Command::new("gh")
+                                                .args([
+                                                    "pr",
+                                                    "view",
+                                                    &number.to_string(),
+                                                    "--repo",
+                                                    &repo,
+                                                    "--json",
+                                                    "id",
+                                                    "--jq",
+                                                    ".id",
+                                                ])
+                                                .output();
+                                            match id_output {
+                                                Ok(o) if o.status.success() => {
+                                                    let node_id =
+                                                        String::from_utf8_lossy(&o.stdout)
+                                                            .trim()
+                                                            .to_string();
+                                                    let query = format!(
+                                                        r#"mutation {{ revertPullRequest(input: {{pullRequestId: "{}"}}) {{ revertPullRequest {{ number url }} }} }}"#,
+                                                        node_id
+                                                    );
+                                                    let revert_output = Command::new("gh")
+                                                        .args([
+                                                            "api",
+                                                            "graphql",
+                                                            "-f",
+                                                            &format!("query={}", query),
+                                                        ])
+                                                        .output();
+                                                    match revert_output {
+                                                        Ok(o) if o.status.success() => {
+                                                            app.pull_requests = fetch_prs(
+                                                                &repo,
+                                                                app.pr_state_filter,
+                                                                app.pr_assignee_filter,
+                                                            );
+                                                            app.clamp_selected();
+                                                            app.last_refresh = Instant::now();
+                                                            app.status_message = Some(format!(
+                                                                "Created revert PR for #{}",
+                                                                number
+                                                            ));
+                                                        }
+                                                        Ok(o) => {
+                                                            let stderr =
+                                                                String::from_utf8_lossy(&o.stderr);
+                                                            app.status_message = Some(format!(
+                                                                "Error: {}",
+                                                                stderr.trim()
+                                                            ));
+                                                        }
+                                                        Err(e) => {
+                                                            app.status_message =
+                                                                Some(format!("Error: {}", e));
+                                                        }
+                                                    }
                                                 }
                                                 Ok(o) => {
                                                     let stderr = String::from_utf8_lossy(&o.stderr);
@@ -2073,6 +2175,8 @@ fn ui(frame: &mut Frame, app: &App) {
                 spans.push(Span::styled(" Mark ready ", desc_style));
                 spans.push(Span::styled(" M ", key_accent));
                 spans.push(Span::styled(" Merge ", desc_style));
+                spans.push(Span::styled(" V ", key_accent));
+                spans.push(Span::styled(" Revert ", desc_style));
                 spans.push(Span::styled(" s ", key_style));
                 spans.push(Span::styled(" Open/Closed ", desc_style));
                 spans.push(Span::styled(" m ", key_style));
