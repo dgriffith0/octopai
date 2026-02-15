@@ -1531,6 +1531,34 @@ fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                                KeyCode::Char('v') if app.active_section == 1 => {
+                                    if let Some(card) = app.worktrees.get(app.selected_card[1]) {
+                                        let worktree_path = card.description.clone();
+                                        let result = Command::new("alacritty")
+                                            .args([
+                                                "--working-directory",
+                                                &worktree_path,
+                                                "-e",
+                                                "cargo",
+                                                "run",
+                                            ])
+                                            .spawn();
+                                        match result {
+                                            Ok(_) => {
+                                                app.status_message = Some(format!(
+                                                    "Launched cargo run in Alacritty for '{}'",
+                                                    card.title
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                app.status_message = Some(format!(
+                                                    "Failed to launch Alacritty: {}",
+                                                    e
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
                                 // PR actions: 'o' to open in browser, 'r' to mark ready
                                 KeyCode::Char('o') if app.active_section == 3 => {
                                     if let Some(card) = app.pull_requests.get(app.selected_card[3])
@@ -2419,6 +2447,8 @@ fn ui(frame: &mut Frame, app: &App) {
                 area_spans.push(Span::styled(" Assigned to me ", desc_style));
             }
             1 => {
+                area_spans.push(Span::styled(" v ", key_accent));
+                area_spans.push(Span::styled(" Verify (cargo run) ", desc_style));
                 area_spans.push(Span::styled(" d ", key_style));
                 area_spans.push(Span::styled(" Remove worktree ", desc_style));
             }
