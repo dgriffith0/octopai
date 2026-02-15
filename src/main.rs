@@ -27,11 +27,15 @@ struct Card {
     tag: String,
     tag_color: Color,
     related: Vec<String>,
+    url: Option<String>,
+    pr_number: Option<u64>,
+    is_draft: Option<bool>,
 }
 
 enum ConfirmAction {
     CloseIssue { number: u64 },
     RemoveWorktree { path: String, branch: String },
+    KillSession { name: String },
 }
 
 struct ConfirmModal {
@@ -252,6 +256,80 @@ fn fetch_issues(repo: &str) -> Vec<Card> {
                 tag,
                 tag_color,
                 related: Vec::new(),
+                url: None,
+                pr_number: None,
+                is_draft: None,
+            }
+        })
+        .collect()
+}
+
+fn fetch_prs(repo: &str) -> Vec<Card> {
+    let output = Command::new("gh")
+        .args([
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--json",
+            "number,title,body,isDraft,url,headRefName,state",
+            "--limit",
+            "30",
+        ])
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let prs: Vec<serde_json::Value> = match serde_json::from_str(&stdout) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    prs.into_iter()
+        .map(|pr| {
+            let number = pr["number"].as_u64().unwrap_or(0);
+            let title = pr["title"].as_str().unwrap_or("").to_string();
+            let body = pr["body"].as_str().unwrap_or("").to_string();
+            let is_draft = pr["isDraft"].as_bool().unwrap_or(false);
+            let url = pr["url"].as_str().unwrap_or("").to_string();
+            let branch = pr["headRefName"].as_str().unwrap_or("").to_string();
+
+            let description = if body.len() > 80 {
+                format!("{}...", &body[..77])
+            } else if body.is_empty() {
+                branch.clone()
+            } else {
+                body
+            };
+
+            let (tag, tag_color) = if is_draft {
+                ("draft", Color::DarkGray)
+            } else {
+                ("ready", Color::Green)
+            };
+
+            // Link to related issue if branch is issue-N
+            let related = if let Some(num) = branch.strip_prefix("issue-") {
+                vec![format!("issue-{}", num)]
+            } else {
+                Vec::new()
+            };
+
+            Card {
+                id: format!("pr-{}", number),
+                title: format!("#{} {}", number, title),
+                description,
+                full_description: None,
+                tag: tag.to_string(),
+                tag_color,
+                related,
+                url: Some(url),
+                pr_number: Some(number),
+                is_draft: Some(is_draft),
             }
         })
         .collect()
@@ -338,6 +416,9 @@ fn fetch_worktrees() -> Vec<Card> {
             tag: tag.to_string(),
             tag_color,
             related,
+            url: None,
+            pr_number: None,
+            is_draft: None,
         });
     }
 
@@ -380,6 +461,44 @@ fn remove_worktree(path: &str, branch: &str) -> std::result::Result<(), String> 
     Ok(())
 }
 
+fn trust_directory(path: &str) -> std::result::Result<(), String> {
+    let claude_json = dirs::home_dir()
+        .ok_or("Could not find home directory")?
+        .join(".claude.json");
+
+    let mut config: serde_json::Value = if claude_json.exists() {
+        let data = fs::read_to_string(&claude_json)
+            .map_err(|e| format!("Failed to read .claude.json: {}", e))?;
+        serde_json::from_str(&data).map_err(|e| format!("Failed to parse .claude.json: {}", e))?
+    } else {
+        serde_json::json!({})
+    };
+
+    let abs_path = fs::canonicalize(path)
+        .map_err(|e| format!("Failed to resolve path: {}", e))?
+        .to_string_lossy()
+        .to_string();
+
+    let projects = config
+        .as_object_mut()
+        .ok_or("Invalid .claude.json format")?
+        .entry("projects")
+        .or_insert_with(|| serde_json::json!({}));
+
+    let project = projects
+        .as_object_mut()
+        .ok_or("Invalid projects format")?
+        .entry(&abs_path)
+        .or_insert_with(|| serde_json::json!({}));
+
+    project["hasTrustDialogAccepted"] = serde_json::json!(true);
+
+    fs::write(&claude_json, serde_json::to_string_pretty(&config).unwrap())
+        .map_err(|e| format!("Failed to write .claude.json: {}", e))?;
+
+    Ok(())
+}
+
 fn create_worktree_and_session(
     repo: &str,
     number: u64,
@@ -401,6 +520,9 @@ fn create_worktree_and_session(
         return Err(format!("git worktree add error: {}", stderr.trim()));
     }
 
+    // Pre-trust the worktree directory for Claude
+    let _ = trust_directory(&worktree_path);
+
     // Create tmux session with neovim in the first pane
     let output = Command::new("tmux")
         .args([
@@ -421,7 +543,32 @@ fn create_worktree_and_session(
         return Err(format!("tmux error: {}", stderr.trim()));
     }
 
-    // Split right pane for Claude
+    // Build the Claude prompt and write to a temp file
+    let body_clean = if body.is_empty() {
+        "No description provided.".to_string()
+    } else {
+        body.lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let prompt = format!(
+        "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and open a draft pull request with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body.",
+        number, repo, title, body_clean, number
+    );
+
+    // Write prompt to a temp file for safe shell expansion
+    let prompt_file = format!("/tmp/roctopai-prompt-{}.txt", number);
+    fs::write(&prompt_file, &prompt).map_err(|e| format!("Failed to write prompt file: {}", e))?;
+
+    // Split right pane running Claude with the prompt via sh -c
+    let shell_cmd = format!(
+        "claude \"$(cat '{}')\" --allowedTools Read,Edit,Bash",
+        prompt_file
+    );
+
     let output = Command::new("tmux")
         .args(["split-window", "-h", "-t", &branch, "-c", &worktree_path])
         .output()
@@ -432,26 +579,141 @@ fn create_worktree_and_session(
         return Err(format!("tmux split error: {}", stderr.trim()));
     }
 
-    // Build the Claude prompt
-    let prompt = format!(
-        "You are working on GitHub issue #{} for the repo {}.\n\nTitle: {}\n\n{}\n\nPlease investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and open a draft pull request with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body.",
-        number,
-        repo,
-        title,
-        if body.is_empty() { "No description provided." } else { body },
-        number
-    );
+    // Wait for shell to initialize, then send the command
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Send claude command to the right pane (the active one after split)
-    let claude_cmd = format!(
-        "claude -p '{}' --allowedTools 'Read,Edit,Bash' --max-turns 10",
-        prompt.replace('\'', "'\\''")
-    );
-
+    let pane_target = format!("{}:.1", branch);
     let _ = Command::new("tmux")
-        .args(["send-keys", "-t", &branch, &claude_cmd, "Enter"])
+        .args(["send-keys", "-t", &pane_target, "-l", &shell_cmd])
+        .output();
+    let _ = Command::new("tmux")
+        .args(["send-keys", "-t", &pane_target, "Enter"])
         .output();
 
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("tmux split error: {}", stderr.trim()));
+    }
+
+    Ok(())
+}
+
+fn fetch_sessions() -> Vec<Card> {
+    let output = Command::new("tmux")
+        .args(["list-sessions", "-F", "#{session_name}"])
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .filter(|name| !name.is_empty())
+        .filter(|name| name.starts_with("issue-"))
+        .map(|name| {
+            // Check if claude is running in any pane of this session
+            let status = Command::new("tmux")
+                .args(["list-panes", "-t", name, "-F", "#{pane_current_command}"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        Some(String::from_utf8_lossy(&o.stdout).to_string())
+                    } else {
+                        None
+                    }
+                });
+
+            // Claude's binary is named by its version (e.g. "2.1.42"),
+            // so check for "claude" or a semver-like pattern in pane commands
+            let has_claude = status
+                .as_ref()
+                .map(|s| {
+                    s.lines().any(|l| {
+                        let l = l.trim();
+                        l.contains("claude") || {
+                            let parts: Vec<&str> = l.split('.').collect();
+                            parts.len() >= 2
+                                && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit()))
+                        }
+                    })
+                })
+                .unwrap_or(false);
+
+            // If claude is running, check pane content to see if it's
+            // actively processing or waiting for input
+            let claude_state = if has_claude {
+                let pane_target = format!("{}:.1", name);
+                let pane_content = Command::new("tmux")
+                    .args(["capture-pane", "-t", &pane_target, "-p"])
+                    .output()
+                    .ok()
+                    .and_then(|o| {
+                        if o.status.success() {
+                            Some(String::from_utf8_lossy(&o.stdout).to_string())
+                        } else {
+                            None
+                        }
+                    });
+
+                if let Some(content) = pane_content {
+                    let trimmed = content.trim_end();
+                    let last_lines: Vec<&str> = trimmed.lines().rev().take(5).collect();
+                    // Claude shows a ">" or "❯" prompt when waiting for input
+                    let waiting = last_lines.iter().any(|l| {
+                        let l = l.trim();
+                        l.starts_with('❯')
+                            || l.starts_with('>')
+                            || l.contains("What would you like")
+                    });
+                    if waiting {
+                        "waiting" // has prompt, waiting for user
+                    } else {
+                        "working" // actively processing
+                    }
+                } else {
+                    "working"
+                }
+            } else {
+                "finished"
+            };
+
+            let (tag, tag_color, description) = match claude_state {
+                "working" => ("working", Color::Green, "Claude is processing..."),
+                "waiting" => ("waiting", Color::Yellow, "Waiting for input"),
+                _ => ("finished", Color::DarkGray, "Claude finished"),
+            };
+
+            // Link to the related issue card
+            let related = vec![format!("{}", name)];
+
+            Card {
+                id: format!("session-{}", name),
+                title: name.to_string(),
+                description: description.to_string(),
+                full_description: None,
+                tag: tag.to_string(),
+                tag_color,
+                related,
+                url: None,
+                pr_number: None,
+                is_draft: None,
+            }
+        })
+        .collect()
+}
+
+fn attach_tmux_session(session: &str) -> std::result::Result<(), String> {
+    Command::new("tmux")
+        .args(["attach-session", "-t", session])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .map_err(|e| format!("Failed to attach: {}", e))?;
     Ok(())
 }
 
@@ -584,7 +846,9 @@ fn main() -> Result<()> {
         if !config.repo.is_empty() {
             app.repo = config.repo.clone();
             app.issues = fetch_issues(&config.repo);
+            app.pull_requests = fetch_prs(&config.repo);
             app.worktrees = fetch_worktrees();
+            app.sessions = fetch_sessions();
             app.selected_card = [0; 4];
             app.screen = Screen::Board;
         }
@@ -662,7 +926,9 @@ fn main() -> Result<()> {
                                     let repo = repo.clone();
                                     let _ = save_config(&repo);
                                     app.issues = fetch_issues(&repo);
+                                    app.pull_requests = fetch_prs(&repo);
                                     app.worktrees = fetch_worktrees();
+                                    app.sessions = fetch_sessions();
                                     app.selected_card = [0; 4];
                                     app.repo = repo;
                                     app.screen = Screen::Board;
@@ -762,6 +1028,7 @@ fn main() -> Result<()> {
                                                 ) {
                                                     Ok(()) => {
                                                         app.worktrees = fetch_worktrees();
+                                                        app.sessions = fetch_sessions();
                                                         app.clamp_selected();
                                                         app.status_message = Some(format!(
                                                             "Created worktree and session for issue #{}",
@@ -818,6 +1085,90 @@ fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                                // PR actions: 'o' to open in browser, 'r' to mark ready
+                                KeyCode::Char('o') if app.active_section == 2 => {
+                                    if let Some(card) = app.pull_requests.get(app.selected_card[2])
+                                    {
+                                        if let Some(url) = &card.url {
+                                            let _ = Command::new("open").arg(url).output();
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('r') if app.active_section == 2 => {
+                                    if let Some(card) = app.pull_requests.get(app.selected_card[2])
+                                    {
+                                        if card.is_draft == Some(true) {
+                                            if let Some(number) = card.pr_number {
+                                                let repo = app.repo.clone();
+                                                let output = Command::new("gh")
+                                                    .args([
+                                                        "pr",
+                                                        "ready",
+                                                        "--repo",
+                                                        &repo,
+                                                        &number.to_string(),
+                                                    ])
+                                                    .output();
+                                                match output {
+                                                    Ok(o) if o.status.success() => {
+                                                        app.pull_requests = fetch_prs(&repo);
+                                                        app.clamp_selected();
+                                                        app.status_message = Some(format!(
+                                                            "PR #{} marked as ready",
+                                                            number
+                                                        ));
+                                                    }
+                                                    Ok(o) => {
+                                                        let stderr =
+                                                            String::from_utf8_lossy(&o.stderr);
+                                                        app.status_message = Some(format!(
+                                                            "Error: {}",
+                                                            stderr.trim()
+                                                        ));
+                                                    }
+                                                    Err(e) => {
+                                                        app.status_message =
+                                                            Some(format!("Error: {}", e));
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            app.status_message =
+                                                Some("PR is already ready".to_string());
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('d') if app.active_section == 3 => {
+                                    if let Some(card) = app.sessions.get(app.selected_card[3]) {
+                                        let session_name = card.title.clone();
+                                        app.confirm_modal = Some(ConfirmModal {
+                                            message: format!(
+                                                "Kill tmux session '{}'?",
+                                                session_name
+                                            ),
+                                            on_confirm: ConfirmAction::KillSession {
+                                                name: session_name,
+                                            },
+                                        });
+                                        app.mode = Mode::Confirming;
+                                    }
+                                }
+                                KeyCode::Char('a') if app.active_section == 3 => {
+                                    if let Some(card) = app.sessions.get(app.selected_card[3]) {
+                                        let session_name = card.title.clone();
+                                        // Suspend TUI, attach to tmux, resume on detach
+                                        disable_raw_mode()?;
+                                        io::stdout().execute(LeaveAlternateScreen)?;
+                                        let _ = attach_tmux_session(&session_name);
+                                        enable_raw_mode()?;
+                                        io::stdout().execute(EnterAlternateScreen)?;
+                                        terminal.clear()?;
+                                        // Refresh state after returning
+                                        app.sessions = fetch_sessions();
+                                        app.worktrees = fetch_worktrees();
+                                        app.clamp_selected();
+                                    }
+                                }
                                 KeyCode::Up | KeyCode::Char('k') => {
                                     app.move_card_up();
                                 }
@@ -850,11 +1201,34 @@ fn main() -> Result<()> {
                                             match remove_worktree(&path, &branch) {
                                                 Ok(()) => {
                                                     app.worktrees = fetch_worktrees();
+                                                    app.sessions = fetch_sessions();
                                                     app.clamp_selected();
                                                     app.status_message = Some(format!(
                                                         "Removed worktree '{}'",
                                                         branch
                                                     ));
+                                                }
+                                                Err(e) => {
+                                                    app.status_message =
+                                                        Some(format!("Error: {}", e));
+                                                }
+                                            }
+                                        }
+                                        ConfirmAction::KillSession { name } => {
+                                            let output = Command::new("tmux")
+                                                .args(["kill-session", "-t", &name])
+                                                .output();
+                                            match output {
+                                                Ok(o) if o.status.success() => {
+                                                    app.sessions = fetch_sessions();
+                                                    app.clamp_selected();
+                                                    app.status_message =
+                                                        Some(format!("Killed session '{}'", name));
+                                                }
+                                                Ok(o) => {
+                                                    let stderr = String::from_utf8_lossy(&o.stderr);
+                                                    app.status_message =
+                                                        Some(format!("Error: {}", stderr.trim()));
                                                 }
                                                 Err(e) => {
                                                     app.status_message =
@@ -1280,6 +1654,18 @@ fn ui(frame: &mut Frame, app: &App) {
                 spans.push(Span::styled(" d ", key_style));
                 spans.push(Span::styled(" Remove worktree ", desc_style));
             }
+            if app.active_section == 2 {
+                spans.push(Span::styled(" o ", key_accent));
+                spans.push(Span::styled(" Open in browser ", desc_style));
+                spans.push(Span::styled(" r ", key_accent));
+                spans.push(Span::styled(" Mark ready ", desc_style));
+            }
+            if app.active_section == 3 {
+                spans.push(Span::styled(" a ", key_accent));
+                spans.push(Span::styled(" Attach session ", desc_style));
+                spans.push(Span::styled(" d ", key_style));
+                spans.push(Span::styled(" Kill session ", desc_style));
+            }
             spans
         }
         Mode::Filtering { .. } => vec![
@@ -1609,4 +1995,190 @@ fn render_card(frame: &mut Frame, area: Rect, card: &Card, is_selected: bool, is
         Style::default().fg(Color::Gray),
     ));
     frame.render_widget(desc, lines[1]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    fn tmux_available() -> bool {
+        Command::new("tmux").arg("-V").output().is_ok()
+    }
+
+    #[test]
+    fn test_prompt_is_clean_single_line() {
+        let body = "This has\n\nmultiple\n\n  lines  \n and   spaces\n";
+        let clean: String = body
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(clean, "This has multiple lines and   spaces");
+        assert!(!clean.contains('\n'));
+    }
+
+    #[test]
+    fn test_prompt_empty_body() {
+        let body = "";
+        let clean = if body.is_empty() {
+            "No description provided.".to_string()
+        } else {
+            body.lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(clean, "No description provided.");
+    }
+
+    #[test]
+    fn test_prompt_format_no_newlines() {
+        let body = "Fix the bug\nwhere login fails\n\nwith special chars: \"quotes\" and $dollars";
+        let body_clean: String = body
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let prompt = format!(
+            "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and open a draft pull request with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body.",
+            1, "owner/repo", "#1 Fix login", body_clean, 1
+        );
+
+        assert!(!prompt.contains('\n'));
+        assert!(prompt.contains("\"quotes\""));
+        assert!(prompt.contains("$dollars"));
+    }
+
+    #[test]
+    fn test_shell_cmd_format() {
+        let prompt_file = "/tmp/roctopai-prompt-42.txt";
+        let shell_cmd = format!(
+            "claude \"$(cat '{}')\" --allowedTools Read,Edit,Bash",
+            prompt_file
+        );
+        assert_eq!(
+            shell_cmd,
+            "claude \"$(cat '/tmp/roctopai-prompt-42.txt')\" --allowedTools Read,Edit,Bash"
+        );
+    }
+
+    #[test]
+    fn test_send_keys_executes_in_tmux_pane() {
+        if !tmux_available() {
+            eprintln!("Skipping: tmux not available");
+            return;
+        }
+
+        let session = "roctopai-test-sendkeys";
+
+        // Kill any leftover test session
+        let _ = Command::new("tmux")
+            .args(["kill-session", "-t", session])
+            .output();
+
+        // Create a detached session
+        let output = Command::new("tmux")
+            .args(["new-session", "-d", "-s", session])
+            .output()
+            .expect("Failed to create tmux session");
+        assert!(output.status.success(), "Failed to create tmux session");
+
+        // Write a test prompt to a file
+        let test_prompt = "Hello from roctopai test";
+        let prompt_file = "/tmp/roctopai-test-prompt.txt";
+        fs::write(prompt_file, test_prompt).expect("Failed to write prompt file");
+
+        // Use the same send-keys approach as production code
+        let shell_cmd = format!("cat '{}'", prompt_file);
+        let _ = Command::new("tmux")
+            .args(["send-keys", "-t", session, "-l", &shell_cmd])
+            .output();
+        let _ = Command::new("tmux")
+            .args(["send-keys", "-t", session, "Enter"])
+            .output();
+
+        // Wait for command to execute
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+
+        // Capture pane contents
+        let output = Command::new("tmux")
+            .args(["capture-pane", "-t", session, "-p"])
+            .output()
+            .expect("Failed to capture pane");
+
+        let pane_contents = String::from_utf8_lossy(&output.stdout);
+
+        // Clean up
+        let _ = Command::new("tmux")
+            .args(["kill-session", "-t", session])
+            .output();
+        let _ = fs::remove_file(prompt_file);
+
+        assert!(
+            pane_contents.contains(test_prompt),
+            "Pane should contain the prompt text. Got:\n{}",
+            pane_contents
+        );
+    }
+
+    #[test]
+    fn test_send_keys_with_shell_expansion() {
+        if !tmux_available() {
+            eprintln!("Skipping: tmux not available");
+            return;
+        }
+
+        let session = "roctopai-test-expansion";
+
+        let _ = Command::new("tmux")
+            .args(["kill-session", "-t", session])
+            .output();
+
+        let output = Command::new("tmux")
+            .args(["new-session", "-d", "-s", session])
+            .output()
+            .expect("Failed to create tmux session");
+        assert!(output.status.success());
+
+        // Write test content
+        let prompt_file = "/tmp/roctopai-test-expansion.txt";
+        fs::write(prompt_file, "expanded-prompt-content").unwrap();
+
+        // Use the exact same pattern as the claude command
+        let shell_cmd = format!("echo \"$(cat '{}')\"", prompt_file);
+
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        let _ = Command::new("tmux")
+            .args(["send-keys", "-t", session, "-l", &shell_cmd])
+            .output();
+        let _ = Command::new("tmux")
+            .args(["send-keys", "-t", session, "Enter"])
+            .output();
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+
+        let output = Command::new("tmux")
+            .args(["capture-pane", "-t", session, "-p"])
+            .output()
+            .expect("Failed to capture pane");
+
+        let pane_contents = String::from_utf8_lossy(&output.stdout);
+
+        let _ = Command::new("tmux")
+            .args(["kill-session", "-t", session])
+            .output();
+        let _ = fs::remove_file(prompt_file);
+
+        assert!(
+            pane_contents.contains("expanded-prompt-content"),
+            "Shell expansion should have produced the file contents. Got:\n{}",
+            pane_contents
+        );
+    }
 }

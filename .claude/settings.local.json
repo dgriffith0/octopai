@@ -15,7 +15,16 @@
       "Bash(chmod:*)",
       "Bash(rustup component:*)",
       "Bash(cargo clippy:*)",
-      "Bash(rustfmt:*)"
+      "Bash(rustfmt:*)",
+      "Bash(printenv:*)",
+      "Bash(tmux kill-server:*)",
+      "WebSearch",
+      "Bash(cargo check:*)",
+      "Bash(CLAUDECODE= claude --help)",
+      "Bash(cargo test:*)",
+      "Bash(ps:*)",
+      "Bash(pgrep:*)",
+      "Bash(tmux capture-pane:*)"
     ]
   }
 }
