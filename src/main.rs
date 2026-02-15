@@ -121,6 +121,50 @@ fn write_worktree_hook_config(
     Ok(())
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum StateFilter {
+    Open,
+    Closed,
+}
+
+impl StateFilter {
+    fn toggle(self) -> Self {
+        match self {
+            StateFilter::Open => StateFilter::Closed,
+            StateFilter::Closed => StateFilter::Open,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            StateFilter::Open => "open",
+            StateFilter::Closed => "closed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum AssigneeFilter {
+    All,
+    Mine,
+}
+
+impl AssigneeFilter {
+    fn toggle(self) -> Self {
+        match self {
+            AssigneeFilter::All => AssigneeFilter::Mine,
+            AssigneeFilter::Mine => AssigneeFilter::All,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            AssigneeFilter::All => "all",
+            AssigneeFilter::Mine => "mine",
+        }
+    }
+}
+
 struct Card {
     id: String,
     title: String,
@@ -134,10 +178,45 @@ struct Card {
     is_draft: Option<bool>,
 }
 
+enum MergeStrategy {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+impl MergeStrategy {
+    fn flag(&self) -> &str {
+        match self {
+            MergeStrategy::Merge => "--merge",
+            MergeStrategy::Squash => "--squash",
+            MergeStrategy::Rebase => "--rebase",
+        }
+    }
+
+    fn label(&self) -> &str {
+        match self {
+            MergeStrategy::Merge => "merge",
+            MergeStrategy::Squash => "squash",
+            MergeStrategy::Rebase => "rebase",
+        }
+    }
+}
+
 enum ConfirmAction {
-    CloseIssue { number: u64 },
-    RemoveWorktree { path: String, branch: String },
-    KillSession { name: String },
+    CloseIssue {
+        number: u64,
+    },
+    RemoveWorktree {
+        path: String,
+        branch: String,
+    },
+    KillSession {
+        name: String,
+    },
+    MergePr {
+        number: u64,
+        strategy: MergeStrategy,
+    },
 }
 
 struct ConfirmModal {
@@ -151,6 +230,7 @@ enum Mode {
     Filtering { query: String },
     CreatingIssue,
     Confirming,
+    MergingPr,
 }
 
 #[derive(PartialEq)]
@@ -291,19 +371,24 @@ fn label_color(name: &str) -> Color {
     }
 }
 
-fn fetch_issues(repo: &str) -> Vec<Card> {
-    let output = Command::new("gh")
-        .args([
-            "issue",
-            "list",
-            "--repo",
-            repo,
-            "--json",
-            "number,title,body,labels",
-            "--limit",
-            "30",
-        ])
-        .output();
+fn fetch_issues(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Vec<Card> {
+    let mut args = vec![
+        "issue".to_string(),
+        "list".to_string(),
+        "--repo".to_string(),
+        repo.to_string(),
+        "--state".to_string(),
+        state.label().to_string(),
+        "--json".to_string(),
+        "number,title,body,labels".to_string(),
+        "--limit".to_string(),
+        "30".to_string(),
+    ];
+    if assignee == AssigneeFilter::Mine {
+        args.push("--assignee".to_string());
+        args.push("@me".to_string());
+    }
+    let output = Command::new("gh").args(&args).output();
 
     let output = match output {
         Ok(o) if o.status.success() => o,
@@ -366,19 +451,24 @@ fn fetch_issues(repo: &str) -> Vec<Card> {
         .collect()
 }
 
-fn fetch_prs(repo: &str) -> Vec<Card> {
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "list",
-            "--repo",
-            repo,
-            "--json",
-            "number,title,body,isDraft,url,headRefName,state",
-            "--limit",
-            "30",
-        ])
-        .output();
+fn fetch_prs(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Vec<Card> {
+    let mut args = vec![
+        "pr".to_string(),
+        "list".to_string(),
+        "--repo".to_string(),
+        repo.to_string(),
+        "--state".to_string(),
+        state.label().to_string(),
+        "--json".to_string(),
+        "number,title,body,isDraft,url,headRefName,state".to_string(),
+        "--limit".to_string(),
+        "30".to_string(),
+    ];
+    if assignee == AssigneeFilter::Mine {
+        args.push("--assignee".to_string());
+        args.push("@me".to_string());
+    }
+    let output = Command::new("gh").args(&args).output();
 
     let output = match output {
         Ok(o) if o.status.success() => o,
@@ -919,6 +1009,11 @@ struct App {
     last_refresh: Instant,
     session_states: SessionStates,
     hook_script_path: Option<String>,
+    issue_state_filter: StateFilter,
+    issue_assignee_filter: AssigneeFilter,
+    pr_state_filter: StateFilter,
+    pr_assignee_filter: AssigneeFilter,
+    merge_pr_number: Option<u64>,
 }
 
 impl App {
@@ -943,6 +1038,11 @@ impl App {
             last_refresh: Instant::now(),
             session_states,
             hook_script_path,
+            issue_state_filter: StateFilter::Open,
+            issue_assignee_filter: AssigneeFilter::All,
+            pr_state_filter: StateFilter::Open,
+            pr_assignee_filter: AssigneeFilter::All,
+            merge_pr_number: None,
         }
     }
 }
@@ -1028,8 +1128,12 @@ impl App {
     }
 
     fn refresh_data(&mut self) {
-        self.issues = fetch_issues(&self.repo);
-        self.pull_requests = fetch_prs(&self.repo);
+        self.issues = fetch_issues(
+            &self.repo,
+            self.issue_state_filter,
+            self.issue_assignee_filter,
+        );
+        self.pull_requests = fetch_prs(&self.repo, self.pr_state_filter, self.pr_assignee_filter);
         self.worktrees = fetch_worktrees();
 
         // Clean up worktrees and sessions for merged PRs
@@ -1367,7 +1471,11 @@ fn main() -> Result<()> {
                                                     .output();
                                                 match output {
                                                     Ok(o) if o.status.success() => {
-                                                        app.pull_requests = fetch_prs(&repo);
+                                                        app.pull_requests = fetch_prs(
+                                                            &repo,
+                                                            app.pr_state_filter,
+                                                            app.pr_assignee_filter,
+                                                        );
                                                         app.clamp_selected();
                                                         app.last_refresh = Instant::now();
                                                         app.status_message = Some(format!(
@@ -1392,6 +1500,20 @@ fn main() -> Result<()> {
                                         } else {
                                             app.status_message =
                                                 Some("PR is already ready".to_string());
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('M') if app.active_section == 3 => {
+                                    if let Some(card) = app.pull_requests.get(app.selected_card[3])
+                                    {
+                                        if let Some(number) = card.pr_number {
+                                            if card.is_draft == Some(true) {
+                                                app.status_message =
+                                                    Some("Cannot merge a draft PR".to_string());
+                                            } else {
+                                                app.merge_pr_number = Some(number);
+                                                app.mode = Mode::MergingPr;
+                                            }
                                         }
                                     }
                                 }
@@ -1424,6 +1546,50 @@ fn main() -> Result<()> {
                                         app.refresh_data();
                                     }
                                 }
+                                // Filter toggles for Issues and Pull Requests
+                                KeyCode::Char('s')
+                                    if app.active_section == 0 || app.active_section == 3 =>
+                                {
+                                    if app.active_section == 0 {
+                                        app.issue_state_filter = app.issue_state_filter.toggle();
+                                        app.issues = fetch_issues(
+                                            &app.repo,
+                                            app.issue_state_filter,
+                                            app.issue_assignee_filter,
+                                        );
+                                    } else {
+                                        app.pr_state_filter = app.pr_state_filter.toggle();
+                                        app.pull_requests = fetch_prs(
+                                            &app.repo,
+                                            app.pr_state_filter,
+                                            app.pr_assignee_filter,
+                                        );
+                                    }
+                                    app.clamp_selected();
+                                    app.last_refresh = Instant::now();
+                                }
+                                KeyCode::Char('m')
+                                    if app.active_section == 0 || app.active_section == 3 =>
+                                {
+                                    if app.active_section == 0 {
+                                        app.issue_assignee_filter =
+                                            app.issue_assignee_filter.toggle();
+                                        app.issues = fetch_issues(
+                                            &app.repo,
+                                            app.issue_state_filter,
+                                            app.issue_assignee_filter,
+                                        );
+                                    } else {
+                                        app.pr_assignee_filter = app.pr_assignee_filter.toggle();
+                                        app.pull_requests = fetch_prs(
+                                            &app.repo,
+                                            app.pr_state_filter,
+                                            app.pr_assignee_filter,
+                                        );
+                                    }
+                                    app.clamp_selected();
+                                    app.last_refresh = Instant::now();
+                                }
                                 KeyCode::Up | KeyCode::Char('k') => {
                                     app.move_card_up();
                                 }
@@ -1441,7 +1607,11 @@ fn main() -> Result<()> {
                                             let repo = app.repo.clone();
                                             match close_issue(&repo, number) {
                                                 Ok(()) => {
-                                                    app.issues = fetch_issues(&repo);
+                                                    app.issues = fetch_issues(
+                                                        &repo,
+                                                        app.issue_state_filter,
+                                                        app.issue_assignee_filter,
+                                                    );
                                                     app.clamp_selected();
                                                     app.last_refresh = Instant::now();
                                                     app.status_message =
@@ -1496,12 +1666,79 @@ fn main() -> Result<()> {
                                                 }
                                             }
                                         }
+                                        ConfirmAction::MergePr { number, strategy } => {
+                                            let repo = app.repo.clone();
+                                            let output = Command::new("gh")
+                                                .args([
+                                                    "pr",
+                                                    "merge",
+                                                    &number.to_string(),
+                                                    strategy.flag(),
+                                                    "--delete-branch",
+                                                    "--repo",
+                                                    &repo,
+                                                ])
+                                                .output();
+                                            match output {
+                                                Ok(o) if o.status.success() => {
+                                                    app.pull_requests = fetch_prs(
+                                                        &repo,
+                                                        app.pr_state_filter,
+                                                        app.pr_assignee_filter,
+                                                    );
+                                                    app.worktrees = fetch_worktrees();
+                                                    app.sessions =
+                                                        fetch_sessions(&app.session_states);
+                                                    app.clamp_selected();
+                                                    app.last_refresh = Instant::now();
+                                                    app.status_message = Some(format!(
+                                                        "Merged PR #{} ({})",
+                                                        number,
+                                                        strategy.label()
+                                                    ));
+                                                }
+                                                Ok(o) => {
+                                                    let stderr = String::from_utf8_lossy(&o.stderr);
+                                                    app.status_message =
+                                                        Some(format!("Error: {}", stderr.trim()));
+                                                }
+                                                Err(e) => {
+                                                    app.status_message =
+                                                        Some(format!("Error: {}", e));
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 app.mode = Mode::Normal;
                             }
                             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                                 app.confirm_modal = None;
+                                app.mode = Mode::Normal;
+                            }
+                            _ => {}
+                        },
+                        Mode::MergingPr => match key.code {
+                            KeyCode::Char('1') | KeyCode::Char('2') | KeyCode::Char('3') => {
+                                let strategy = match key.code {
+                                    KeyCode::Char('1') => MergeStrategy::Merge,
+                                    KeyCode::Char('2') => MergeStrategy::Squash,
+                                    _ => MergeStrategy::Rebase,
+                                };
+                                if let Some(number) = app.merge_pr_number.take() {
+                                    app.confirm_modal = Some(ConfirmModal {
+                                        message: format!(
+                                            "Merge PR #{} with {} strategy?",
+                                            number,
+                                            strategy.label()
+                                        ),
+                                        on_confirm: ConfirmAction::MergePr { number, strategy },
+                                    });
+                                    app.mode = Mode::Confirming;
+                                }
+                            }
+                            KeyCode::Esc => {
+                                app.merge_pr_number = None;
                                 app.mode = Mode::Normal;
                             }
                             _ => {}
@@ -1530,7 +1767,11 @@ fn main() -> Result<()> {
                                             let body = modal.body.clone();
                                             match create_issue(&app.repo, &title, &body) {
                                                 Ok(number) => {
-                                                    app.issues = fetch_issues(&app.repo);
+                                                    app.issues = fetch_issues(
+                                                        &app.repo,
+                                                        app.issue_state_filter,
+                                                        app.issue_assignee_filter,
+                                                    );
                                                     app.clamp_selected();
                                                     app.last_refresh = Instant::now();
                                                     app.issue_modal = None;
@@ -1858,11 +2099,21 @@ fn ui(frame: &mut Frame, app: &App) {
         ])
         .split(outer[1]);
 
+    let issue_title = format!(
+        " Issues [{}|{}] ",
+        app.issue_state_filter.label(),
+        app.issue_assignee_filter.label()
+    );
+    let pr_title = format!(
+        " Pull Requests [{}|{}] ",
+        app.pr_state_filter.label(),
+        app.pr_assignee_filter.label()
+    );
     let section_data: [(&str, Color, &[Card]); 4] = [
-        (" Issues ", Color::Red, &app.issues),
+        (&issue_title, Color::Red, &app.issues),
         (" Worktrees ", Color::Yellow, &app.worktrees),
         (" Sessions ", Color::Blue, &app.sessions),
-        (" Pull Requests ", Color::Magenta, &app.pull_requests),
+        (&pr_title, Color::Magenta, &app.pull_requests),
     ];
 
     let filter_query = match &app.mode {
@@ -1940,6 +2191,10 @@ fn ui(frame: &mut Frame, app: &App) {
                 spans.push(Span::styled(" Worktree+Claude ", desc_style));
                 spans.push(Span::styled(" d ", key_style));
                 spans.push(Span::styled(" Close issue ", desc_style));
+                spans.push(Span::styled(" s ", key_style));
+                spans.push(Span::styled(" Open/Closed ", desc_style));
+                spans.push(Span::styled(" m ", key_style));
+                spans.push(Span::styled(" Assigned to me ", desc_style));
             }
             if app.active_section == 1 {
                 spans.push(Span::styled(" d ", key_style));
@@ -1956,6 +2211,12 @@ fn ui(frame: &mut Frame, app: &App) {
                 spans.push(Span::styled(" Open in browser ", desc_style));
                 spans.push(Span::styled(" r ", key_accent));
                 spans.push(Span::styled(" Mark ready ", desc_style));
+                spans.push(Span::styled(" M ", key_accent));
+                spans.push(Span::styled(" Merge ", desc_style));
+                spans.push(Span::styled(" s ", key_style));
+                spans.push(Span::styled(" Open/Closed ", desc_style));
+                spans.push(Span::styled(" m ", key_style));
+                spans.push(Span::styled(" Assigned to me ", desc_style));
             }
             spans
         }
@@ -1977,6 +2238,16 @@ fn ui(frame: &mut Frame, app: &App) {
             Span::styled(" y ", key_accent),
             Span::styled(" Confirm ", desc_style),
             Span::styled(" n/Esc ", key_style),
+            Span::styled(" Cancel ", desc_style),
+        ],
+        Mode::MergingPr => vec![
+            Span::styled(" 1 ", key_accent),
+            Span::styled(" Merge ", desc_style),
+            Span::styled(" 2 ", key_accent),
+            Span::styled(" Squash ", desc_style),
+            Span::styled(" 3 ", key_accent),
+            Span::styled(" Rebase ", desc_style),
+            Span::styled(" Esc ", key_style),
             Span::styled(" Cancel ", desc_style),
         ],
     };
@@ -2016,6 +2287,13 @@ fn ui(frame: &mut Frame, app: &App) {
     // Render confirm modal overlay if open
     if let Some(modal) = &app.confirm_modal {
         ui_confirm_modal(frame, modal);
+    }
+
+    // Render merge strategy selection modal
+    if app.mode == Mode::MergingPr {
+        if let Some(number) = app.merge_pr_number {
+            ui_merge_modal(frame, number);
+        }
     }
 }
 
@@ -2129,6 +2407,60 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal) {
         Style::default().fg(Color::DarkGray),
     )]));
     frame.render_widget(hint, chunks[3]);
+}
+
+fn ui_merge_modal(frame: &mut Frame, pr_number: u64) {
+    let area = centered_rect(40, 25, frame.area());
+
+    frame.render_widget(Clear, area);
+
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta))
+        .title(format!(" Merge PR #{} ", pr_number))
+        .title_style(
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        )
+        .padding(Padding::new(1, 1, 1, 0));
+    let inner = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let key_style = Style::default()
+        .fg(Color::Magenta)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(Color::White);
+
+    let options = Paragraph::new(vec![
+        Line::from(Span::styled("Select merge strategy:", text_style)),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" 1 ", key_style),
+            Span::styled(" Create a merge commit", text_style),
+        ]),
+        Line::from(vec![
+            Span::styled(" 2 ", key_style),
+            Span::styled(" Squash and merge", text_style),
+        ]),
+        Line::from(vec![
+            Span::styled(" 3 ", key_style),
+            Span::styled(" Rebase and merge", text_style),
+        ]),
+    ]);
+    frame.render_widget(options, chunks[0]);
+
+    let hint = Paragraph::new(Line::from(vec![Span::styled(
+        "Esc to cancel",
+        Style::default().fg(Color::DarkGray),
+    )]));
+    frame.render_widget(hint, chunks[1]);
 }
 
 fn ui_confirm_modal(frame: &mut Frame, modal: &ConfirmModal) {
@@ -2268,10 +2600,10 @@ fn render_column(
 fn render_card(frame: &mut Frame, area: Rect, card: &Card, is_selected: bool, is_related: bool) {
     let border_style = if is_selected {
         Style::default()
-            .fg(Color::White)
+            .fg(Color::Rgb(255, 200, 50))
             .add_modifier(Modifier::BOLD)
     } else if is_related {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Rgb(180, 160, 100))
     } else {
         Style::default().fg(Color::DarkGray)
     };
