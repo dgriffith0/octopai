@@ -57,9 +57,9 @@ fn start_event_socket(states: SessionStates) -> io::Result<()> {
 }
 
 fn ensure_hook_script() -> std::result::Result<PathBuf, String> {
-    let config_dir = dirs::config_dir()
-        .ok_or("Could not find config directory")?
-        .join("roctopai");
+    let config_dir = dirs::home_dir()
+        .ok_or("Could not find home directory")?
+        .join(".config/roctopai");
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
 
     let script_path = config_dir.join("event-hook.sh");
@@ -106,9 +106,9 @@ fn write_worktree_hook_config(
     };
 
     let hook_config = serde_json::json!({
-        "PreToolUse": [{"hooks": [{"type": "command", "command": format!("{} working", hook_script)}]}],
-        "Stop": [{"hooks": [{"type": "command", "command": format!("{} idle", hook_script)}]}],
-        "Notification": [{"hooks": [{"type": "command", "command": format!("{} waiting", hook_script)}]}]
+        "PreToolUse": [{"hooks": [{"type": "command", "command": format!("'{}' working", hook_script), "async": true}]}],
+        "Stop": [{"hooks": [{"type": "command", "command": format!("'{}' waiting", hook_script)}]}],
+        "Notification": [{"matcher": "idle_prompt", "hooks": [{"type": "command", "command": format!("'{}' waiting", hook_script), "async": true}]}]
     });
 
     settings["hooks"] = hook_config;

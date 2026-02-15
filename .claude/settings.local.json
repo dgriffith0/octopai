@@ -24,7 +24,8 @@
       "Bash(cargo test:*)",
       "Bash(ps:*)",
       "Bash(pgrep:*)",
-      "Bash(tmux capture-pane:*)"
+      "Bash(tmux capture-pane:*)",
+      "Bash(/dev/null -exec echo \"=== {} ===\" ; -exec cat {} ;)"
     ]
   }
 }
