@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo init:*)",
+      "Bash(cargo build:*)",
+      "Bash(rustc:*)",
+      "Bash(rustup update:*)",
+      "Bash(cargo update:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "Bash(tmux list-sessions:*)",
+      "Bash(tmux list-panes:*)",
+      "Bash(xargs:*)",
+      "Bash(chmod:*)",
+      "Bash(rustup component:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(rustfmt:*)"
+    ]
+  }
+}

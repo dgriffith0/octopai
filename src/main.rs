@@ -322,9 +322,13 @@ fn fetch_worktrees() -> Vec<Card> {
             branch.clone()
         };
 
+        // Skip the main/master worktree — that's where we run from
         let is_main = display_name == "main" || display_name == "master";
-        let tag = if is_main { "primary" } else { "branch" };
-        let tag_color = if is_main { Color::Green } else { Color::Yellow };
+        if is_main {
+            continue;
+        }
+        let tag = "branch";
+        let tag_color = Color::Yellow;
 
         // Link issue-N worktrees to issue cards
         let related = if let Some(num) = display_name.strip_prefix("issue-") {
@@ -436,11 +440,12 @@ fn create_worktree_and_session(
 
     // Build the Claude prompt
     let prompt = format!(
-        "You are working on GitHub issue #{} for the repo {}.\n\nTitle: {}\n\n{}\n\nPlease investigate the codebase and implement a solution for this issue.",
+        "You are working on GitHub issue #{} for the repo {}.\n\nTitle: {}\n\n{}\n\nPlease investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and open a draft pull request with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body.",
         number,
         repo,
         title,
-        if body.is_empty() { "No description provided." } else { body }
+        if body.is_empty() { "No description provided." } else { body },
+        number
     );
 
     // Send claude command to the right pane (the active one after split)
