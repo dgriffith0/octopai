@@ -127,15 +127,48 @@ pub const TEMPLATE_FIELDS: &[(&str, &str)] = &[
 ];
 
 /// Default editor command template. Users can override this entirely.
-pub const DEFAULT_EDITOR_COMMAND: &str = "alacritty --working-directory {directory} -e nvim";
+pub const DEFAULT_EDITOR_COMMAND: &str = "{alacritty} nvim";
 
 /// Available template fields for editor and verify command configuration.
 pub const EDITOR_TEMPLATE_FIELDS: &[(&str, &str)] =
     &[("{directory}", "Path to the worktree directory")];
 
+/// Shortcut templates that expand to common terminal emulator prefixes.
+/// Each shortcut expands to include `{directory}` which is then resolved
+/// in a second pass.
+pub const COMMAND_SHORTCUTS: &[(&str, &str, &str)] = &[
+    (
+        "{alacritty}",
+        "alacritty --working-directory {directory} -e",
+        "Alacritty terminal with working directory",
+    ),
+    (
+        "{kitty}",
+        "kitty -d {directory} -e",
+        "Kitty terminal with working directory",
+    ),
+    (
+        "{wezterm}",
+        "wezterm start --cwd {directory} --",
+        "WezTerm terminal with working directory",
+    ),
+];
+
+/// Expand shortcut templates in a command string.
+fn expand_shortcuts(template: &str) -> String {
+    let mut result = template.to_string();
+    for (shortcut, expansion, _) in COMMAND_SHORTCUTS {
+        result = result.replace(shortcut, expansion);
+    }
+    result
+}
+
 /// Expand template fields in an editor or verify command string.
+/// Shortcut templates (e.g. `{alacritty}`) are expanded first, then
+/// `{directory}` is resolved.
 pub fn expand_editor_command(template: &str, directory: &str) -> String {
-    template.replace("{directory}", directory)
+    let expanded = expand_shortcuts(template);
+    expanded.replace("{directory}", directory)
 }
 
 /// Expand template fields in a command string.
