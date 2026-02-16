@@ -4,9 +4,9 @@ use std::io::Read as _;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 
-use crate::models::{SessionStates, SOCKET_PATH};
+use crate::models::{MessageLog, SessionStates, MAX_MESSAGES, SOCKET_PATH};
 
-pub fn start_event_socket(states: SessionStates) -> io::Result<()> {
+pub fn start_event_socket(states: SessionStates, message_log: MessageLog) -> io::Result<()> {
     let _ = fs::remove_file(SOCKET_PATH);
     let listener = UnixListener::bind(SOCKET_PATH)?;
     listener.set_nonblocking(false)?;
@@ -29,6 +29,12 @@ pub fn start_event_socket(states: SessionStates) -> io::Result<()> {
                                 {
                                     if let Ok(mut states) = states.lock() {
                                         states.insert(session.to_string(), status.to_string());
+                                    }
+                                    if let Ok(mut log) = message_log.lock() {
+                                        log.push_back(format!("[hook] {} -> {}", session, status));
+                                        while log.len() > MAX_MESSAGES {
+                                            log.pop_front();
+                                        }
                                     }
                                 }
                             }

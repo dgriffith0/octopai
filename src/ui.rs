@@ -383,11 +383,22 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
 }
 
 pub fn ui(frame: &mut Frame, app: &App) {
+    let msg_height = if app.show_messages {
+        if app.messages_expanded {
+            10
+        } else {
+            3
+        }
+    } else {
+        0
+    };
+
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(0),
+            Constraint::Length(msg_height),
             Constraint::Length(2),
         ])
         .split(frame.area());
@@ -466,6 +477,11 @@ pub fn ui(frame: &mut Frame, app: &App) {
         );
     }
 
+    // Message center
+    if app.show_messages {
+        render_message_center(frame, outer[2], app);
+    }
+
     // Bottom legend bar (two lines: global on top, area-specific on bottom)
     let key_style = Style::default()
         .fg(Color::White)
@@ -512,6 +528,32 @@ pub fn ui(frame: &mut Frame, app: &App) {
                 Span::styled(" Deps ", desc_style),
                 Span::styled(" C ", key_style),
                 Span::styled(" Config ", desc_style),
+                Span::styled(" x ", key_style),
+                Span::styled(
+                    if app.show_messages {
+                        " Hide msgs "
+                    } else {
+                        " Show msgs "
+                    },
+                    desc_style,
+                ),
+                if app.show_messages {
+                    Span::styled(" X ", key_style)
+                } else {
+                    Span::styled("", desc_style)
+                },
+                if app.show_messages {
+                    Span::styled(
+                        if app.messages_expanded {
+                            " Collapse "
+                        } else {
+                            " Expand "
+                        },
+                        desc_style,
+                    )
+                } else {
+                    Span::styled("", desc_style)
+                },
             ]
         }
         Mode::Filtering { .. } => vec![
@@ -605,7 +647,7 @@ pub fn ui(frame: &mut Frame, app: &App) {
     let bottom_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
-        .split(outer[2]);
+        .split(outer[3]);
 
     // Top row: global actions with timer on right
     let top_bottom = Layout::default()
@@ -869,6 +911,60 @@ fn ui_confirm_modal(frame: &mut Frame, modal: &ConfirmModal) {
         Span::styled(" cancel", Style::default().fg(Color::DarkGray)),
     ]));
     frame.render_widget(hint, chunks[1]);
+}
+
+fn render_message_center(frame: &mut Frame, area: Rect, app: &App) {
+    let border_style = if app.messages_expanded {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style)
+        .title(" Messages ")
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let max_lines = inner.height as usize;
+    let messages: Vec<String> = if let Ok(log) = app.message_log.lock() {
+        log.iter()
+            .rev()
+            .take(max_lines)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let lines: Vec<Line> = messages
+        .iter()
+        .map(|msg| {
+            let style = if msg.starts_with("[hook]") {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            Line::from(Span::styled(msg.as_str(), style))
+        })
+        .collect();
+
+    let paragraph = Paragraph::new(lines);
+    frame.render_widget(paragraph, inner);
 }
 
 fn render_column(

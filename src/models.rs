@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -6,8 +6,10 @@ use ratatui::style::Color;
 
 pub const SOCKET_PATH: &str = "/tmp/roctopai-events.sock";
 pub const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+pub const MAX_MESSAGES: usize = 100;
 
 pub type SessionStates = Arc<Mutex<HashMap<String, String>>>;
+pub type MessageLog = Arc<Mutex<VecDeque<String>>>;
 
 pub struct Card {
     pub id: String,
