@@ -1,12 +1,12 @@
-# roctopai
+# octopai
 
 ```
-                 _                    _
-  _ __ ___   ___| |_ ___  _ __   __ _(_)
- | '__/ _ \ / __| __/ _ \| '_ \ / _` | |
- | | | (_) | (__| || (_) | |_) | (_| | |
- |_|  \___/ \___|\__\___/| .__/ \__,_|_|
-                          |_|
+            _                    _
+  ___   ___| |_ ___  _ __   __ _(_)
+ / _ \ / __| __/ _ \| '_ \ / _` | |
+| (_) | (__| || (_) | |_) | (_| | |
+ \___/ \___|\__\___/| .__/ \__,_|_|
+                     |_|
 ```
 
 A terminal UI for managing GitHub issues, worktrees, and AI-powered coding sessions.
@@ -16,9 +16,9 @@ Built with Rust and [Ratatui](https://github.com/ratatui/ratatui).
 
 ## Why use it
 
-Turning a GitHub issue into a working pull request involves a lot of manual steps: creating a branch, setting up a worktree, launching an AI assistant with the right context, monitoring progress, and managing the resulting PR. Roctopai collapses all of that into a single kanban board in your terminal.
+Turning a GitHub issue into a working pull request involves a lot of manual steps: creating a branch, setting up a worktree, launching an AI assistant with the right context, monitoring progress, and managing the resulting PR. Octopai collapses all of that into a single kanban board in your terminal.
 
-- **One keypress to go from issue to AI session** — press `w` on any issue and roctopai creates a worktree, opens a tmux session, and drops Claude or Cursor in with the full issue context
+- **One keypress to go from issue to AI session** — press `w` on any issue and octopai creates a worktree, opens a tmux session, and drops Claude or Cursor in with the full issue context
 - **Everything in one view** — issues, worktrees, sessions, and pull requests are shown side by side so you always know what's happening
 - **Real-time status** — see whether Claude is working, idle, or waiting for permission without leaving the board
 - **Full lifecycle management** — create issues, review PRs, merge, revert, and clean up worktrees all from the same interface
@@ -39,7 +39,7 @@ The following tools must be installed and available on your `PATH`:
 | [python3](https://www.python.org/) | Used by the hook script for socket communication |
 | [claude](https://docs.anthropic.com/en/docs/claude-code) or [cursor](https://www.cursor.com/) | AI coding assistant (at least one required) |
 
-Roctopai checks for these on startup and will tell you what's missing.
+Octopai checks for these on startup and will tell you what's missing.
 
 ---
 
@@ -47,14 +47,24 @@ Roctopai checks for these on startup and will tell you what's missing.
 
 ### Install
 
+From GitHub:
+
 ```sh
+cargo install --git https://github.com/dgriffith0/octopai
+```
+
+Or clone and install locally:
+
+```sh
+git clone https://github.com/dgriffith0/octopai.git
+cd octopai
 cargo install --path .
 ```
 
 ### Run
 
 ```sh
-roctopai
+octopai
 ```
 
 On first launch you'll be prompted to enter a GitHub user or organization name. Pick a repository and you're on the board.

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ratatui::style::Color;
 
-pub const SOCKET_PATH: &str = "/tmp/roctopai-events.sock";
+pub const SOCKET_PATH: &str = "/tmp/octopai-events.sock";
 pub const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 pub const MAX_MESSAGES: usize = 100;
 
