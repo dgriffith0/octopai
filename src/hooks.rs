@@ -124,5 +124,27 @@ pub fn write_worktree_hook_config(
     )
     .map_err(|e| format!("Failed to write hook settings: {}", e))?;
 
+    // Write Cursor hooks config
+    let cursor_dir = format!("{}/.cursor", worktree_path);
+    fs::create_dir_all(&cursor_dir).map_err(|e| format!("Failed to create .cursor dir: {}", e))?;
+
+    let cursor_hooks = serde_json::json!({
+        "version": 1,
+        "hooks": {
+            "beforeShellExecution": [{"command": format!("'{}' working", hook_script)}],
+            "beforeMCPExecution": [{"command": format!("'{}' working", hook_script)}],
+            "afterFileEdit": [{"command": format!("'{}' working", hook_script)}],
+            "beforeSubmitPrompt": [{"command": format!("'{}' processing", hook_script)}],
+            "stop": [{"command": format!("'{}' idle", hook_script)}]
+        }
+    });
+
+    let cursor_hooks_path = format!("{}/.cursor/hooks.json", worktree_path);
+    fs::write(
+        &cursor_hooks_path,
+        serde_json::to_string_pretty(&cursor_hooks).unwrap(),
+    )
+    .map_err(|e| format!("Failed to write Cursor hook settings: {}", e))?;
+
     Ok(())
 }
