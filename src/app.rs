@@ -7,8 +7,8 @@ use crate::git::{cleanup_merged_worktrees, fetch_worktrees};
 use crate::github::{fetch_issues, fetch_prs};
 use crate::hooks::ensure_hook_script;
 use crate::models::{
-    AssigneeFilter, Card, ConfigEditState, ConfirmModal, IssueModal, IssueSubmitResult, Mode,
-    RepoSelectState, Screen, SessionStates, StateFilter,
+    AssigneeFilter, Card, ConfigEditState, ConfirmModal, IssueModal, IssueSubmitResult, MessageLog,
+    Mode, RepoSelectState, Screen, SessionStates, StateFilter, MAX_MESSAGES,
 };
 use crate::session::fetch_sessions;
 
@@ -37,10 +37,13 @@ pub struct App {
     pub spinner_tick: usize,
     pub dependencies: Vec<Dependency>,
     pub config_edit: Option<ConfigEditState>,
+    pub message_log: MessageLog,
+    pub show_messages: bool,
+    pub messages_expanded: bool,
 }
 
 impl App {
-    pub fn new(session_states: SessionStates) -> Self {
+    pub fn new(session_states: SessionStates, message_log: MessageLog) -> Self {
         let hook_script_path = ensure_hook_script()
             .ok()
             .map(|p| p.to_string_lossy().to_string());
@@ -69,7 +72,24 @@ impl App {
             spinner_tick: 0,
             dependencies: Vec::new(),
             config_edit: None,
+            message_log: message_log.clone(),
+            show_messages: true,
+            messages_expanded: false,
         }
+    }
+
+    pub fn add_message(&self, msg: &str) {
+        if let Ok(mut log) = self.message_log.lock() {
+            log.push_back(msg.to_string());
+            while log.len() > MAX_MESSAGES {
+                log.pop_front();
+            }
+        }
+    }
+
+    pub fn set_status(&mut self, msg: String) {
+        self.add_message(&msg);
+        self.status_message = Some(msg);
     }
 
     pub fn section_cards(&self, section: usize) -> &[Card] {
@@ -163,7 +183,7 @@ impl App {
         // Clean up worktrees and sessions for merged PRs
         let cleaned = cleanup_merged_worktrees(&self.repo, &self.worktrees);
         if !cleaned.is_empty() {
-            self.status_message = Some(format!("Cleaned up merged: {}", cleaned.join(", ")));
+            self.set_status(format!("Cleaned up merged: {}", cleaned.join(", ")));
             // Re-fetch worktrees after cleanup
             self.worktrees = fetch_worktrees();
         }

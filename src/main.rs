@@ -34,7 +34,8 @@ use github::{close_issue, create_issue, fetch_issues, fetch_prs, fetch_repos};
 use hooks::start_event_socket;
 use models::{
     ConfigEditState, ConfirmAction, ConfirmModal, IssueModal, IssueSubmitResult, MergeStrategy,
-    Mode, RepoSelectPhase, Screen, SessionStates, TextInput, REFRESH_INTERVAL, SOCKET_PATH,
+    MessageLog, Mode, RepoSelectPhase, Screen, SessionStates, TextInput, REFRESH_INTERVAL,
+    SOCKET_PATH,
 };
 use session::{
     attach_tmux_session, create_worktree_and_session, expand_editor_command, fetch_sessions,
@@ -46,14 +47,15 @@ fn main() -> Result<()> {
 
     // Start the Unix socket event server for Claude hook events
     let session_states: SessionStates = Arc::new(Mutex::new(HashMap::new()));
-    start_event_socket(Arc::clone(&session_states))?;
+    let message_log: MessageLog = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    start_event_socket(Arc::clone(&session_states), Arc::clone(&message_log))?;
 
     enable_raw_mode()?;
     io::stdout().execute(EnterAlternateScreen)?;
 
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(io::stdout()))?;
-    let mut app = App::new(session_states);
+    let mut app = App::new(session_states, message_log);
 
     // Check external dependencies on startup
     let initial_deps = check_dependencies();
@@ -113,13 +115,13 @@ fn main() -> Result<()> {
                                 app.worktrees = fetch_worktrees();
                                 app.sessions = fetch_sessions(&app.session_states);
                                 app.clamp_selected();
-                                app.status_message = Some(format!(
+                                app.set_status(format!(
                                     "Created issue #{} with worktree and session",
                                     number
                                 ));
                             }
                             Err(e) => {
-                                app.status_message = Some(format!(
+                                app.set_status(format!(
                                     "Created issue #{} but failed to create worktree: {}",
                                     number, e
                                 ));
@@ -238,7 +240,7 @@ fn main() -> Result<()> {
                                     let _ = config::save_full_config(&config);
                                 }
 
-                                app.status_message = Some("Configuration saved".to_string());
+                                app.set_status("Configuration saved".to_string());
                                 app.config_edit = None;
                                 app.screen = Screen::Board;
                             }
@@ -454,7 +456,7 @@ fn main() -> Result<()> {
                                 }
                                 KeyCode::Char('R') => {
                                     app.refresh_data();
-                                    app.status_message = Some("Refreshed".to_string());
+                                    app.set_status("Refreshed".to_string());
                                 }
                                 KeyCode::Char('D') => {
                                     app.dependencies = check_dependencies();
@@ -498,14 +500,13 @@ fn main() -> Result<()> {
                                                         app.clamp_selected();
                                                         app.last_refresh =
                                                             std::time::Instant::now();
-                                                        app.status_message = Some(format!(
+                                                        app.set_status(format!(
                                                             "Created worktree and session for issue #{}",
                                                             number
                                                         ));
                                                     }
                                                     Err(e) => {
-                                                        app.status_message =
-                                                            Some(format!("Error: {}", e));
+                                                        app.set_status(format!("Error: {}", e));
                                                     }
                                                 }
                                             }
@@ -534,7 +535,7 @@ fn main() -> Result<()> {
                                     if let Some(card) = app.worktrees.get(app.selected_card[1]) {
                                         let branch = card.title.clone();
                                         if branch == "main" || branch == "master" {
-                                            app.status_message = Some(
+                                            app.set_status(
                                                 "Cannot remove main/master worktree".to_string(),
                                             );
                                         } else {
@@ -563,13 +564,13 @@ fn main() -> Result<()> {
                                                 Command::new("sh").args(["-c", &expanded]).spawn();
                                             match result {
                                                 Ok(_) => {
-                                                    app.status_message = Some(format!(
+                                                    app.set_status(format!(
                                                         "Launched verify for '{}'",
                                                         card.title
                                                     ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message = Some(format!(
+                                                    app.set_status(format!(
                                                         "Failed to launch verify command: {}",
                                                         e
                                                     ));
@@ -593,13 +594,13 @@ fn main() -> Result<()> {
                                                 Command::new("sh").args(["-c", &expanded]).spawn();
                                             match result {
                                                 Ok(_) => {
-                                                    app.status_message = Some(format!(
+                                                    app.set_status(format!(
                                                         "Opened editor for '{}'",
                                                         card.title
                                                     ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message = Some(format!(
+                                                    app.set_status(format!(
                                                         "Failed to launch editor: {}",
                                                         e
                                                     ));
@@ -662,7 +663,7 @@ fn main() -> Result<()> {
                                                         app.clamp_selected();
                                                         app.last_refresh =
                                                             std::time::Instant::now();
-                                                        app.status_message = Some(format!(
+                                                        app.set_status(format!(
                                                             "PR #{} marked as ready",
                                                             number
                                                         ));
@@ -670,20 +671,18 @@ fn main() -> Result<()> {
                                                     Ok(o) => {
                                                         let stderr =
                                                             String::from_utf8_lossy(&o.stderr);
-                                                        app.status_message = Some(format!(
+                                                        app.set_status(format!(
                                                             "Error: {}",
                                                             stderr.trim()
                                                         ));
                                                     }
                                                     Err(e) => {
-                                                        app.status_message =
-                                                            Some(format!("Error: {}", e));
+                                                        app.set_status(format!("Error: {}", e));
                                                     }
                                                 }
                                             }
                                         } else {
-                                            app.status_message =
-                                                Some("PR is already ready".to_string());
+                                            app.set_status("PR is already ready".to_string());
                                         }
                                     }
                                 }
@@ -692,8 +691,9 @@ fn main() -> Result<()> {
                                     {
                                         if let Some(number) = card.pr_number {
                                             if card.is_merged != Some(true) {
-                                                app.status_message =
-                                                    Some("Can only revert merged PRs".to_string());
+                                                app.set_status(
+                                                    "Can only revert merged PRs".to_string(),
+                                                );
                                             } else {
                                                 app.confirm_modal = Some(ConfirmModal {
                                                     message: format!(
@@ -712,8 +712,9 @@ fn main() -> Result<()> {
                                     {
                                         if let Some(number) = card.pr_number {
                                             if card.is_draft == Some(true) {
-                                                app.status_message =
-                                                    Some("Cannot merge a draft PR".to_string());
+                                                app.set_status(
+                                                    "Cannot merge a draft PR".to_string(),
+                                                );
                                             } else {
                                                 app.confirm_modal = Some(ConfirmModal {
                                                     message: format!(
@@ -809,6 +810,15 @@ fn main() -> Result<()> {
                                 KeyCode::Down | KeyCode::Char('j') => {
                                     app.move_card_down();
                                 }
+                                KeyCode::Char('x') => {
+                                    app.show_messages = !app.show_messages;
+                                    if !app.show_messages {
+                                        app.messages_expanded = false;
+                                    }
+                                }
+                                KeyCode::Char('X') if app.show_messages => {
+                                    app.messages_expanded = !app.messages_expanded;
+                                }
                                 _ => {}
                             }
                         }
@@ -827,12 +837,13 @@ fn main() -> Result<()> {
                                                     );
                                                     app.clamp_selected();
                                                     app.last_refresh = std::time::Instant::now();
-                                                    app.status_message =
-                                                        Some(format!("Closed issue #{}", number));
+                                                    app.set_status(format!(
+                                                        "Closed issue #{}",
+                                                        number
+                                                    ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", e));
+                                                    app.set_status(format!("Error: {}", e));
                                                 }
                                             }
                                         }
@@ -844,14 +855,13 @@ fn main() -> Result<()> {
                                                         fetch_sessions(&app.session_states);
                                                     app.clamp_selected();
                                                     app.last_refresh = std::time::Instant::now();
-                                                    app.status_message = Some(format!(
+                                                    app.set_status(format!(
                                                         "Removed worktree '{}'",
                                                         branch
                                                     ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", e));
+                                                    app.set_status(format!("Error: {}", e));
                                                 }
                                             }
                                         }
@@ -865,17 +875,20 @@ fn main() -> Result<()> {
                                                         fetch_sessions(&app.session_states);
                                                     app.clamp_selected();
                                                     app.last_refresh = std::time::Instant::now();
-                                                    app.status_message =
-                                                        Some(format!("Killed session '{}'", name));
+                                                    app.set_status(format!(
+                                                        "Killed session '{}'",
+                                                        name
+                                                    ));
                                                 }
                                                 Ok(o) => {
                                                     let stderr = String::from_utf8_lossy(&o.stderr);
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", stderr.trim()));
+                                                    app.set_status(format!(
+                                                        "Error: {}",
+                                                        stderr.trim()
+                                                    ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", e));
+                                                    app.set_status(format!("Error: {}", e));
                                                 }
                                             }
                                         }
@@ -923,7 +936,7 @@ fn main() -> Result<()> {
                                                             app.clamp_selected();
                                                             app.last_refresh =
                                                                 std::time::Instant::now();
-                                                            app.status_message = Some(format!(
+                                                            app.set_status(format!(
                                                                 "Created revert PR for #{}",
                                                                 number
                                                             ));
@@ -931,25 +944,25 @@ fn main() -> Result<()> {
                                                         Ok(o) => {
                                                             let stderr =
                                                                 String::from_utf8_lossy(&o.stderr);
-                                                            app.status_message = Some(format!(
+                                                            app.set_status(format!(
                                                                 "Error: {}",
                                                                 stderr.trim()
                                                             ));
                                                         }
                                                         Err(e) => {
-                                                            app.status_message =
-                                                                Some(format!("Error: {}", e));
+                                                            app.set_status(format!("Error: {}", e));
                                                         }
                                                     }
                                                 }
                                                 Ok(o) => {
                                                     let stderr = String::from_utf8_lossy(&o.stderr);
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", stderr.trim()));
+                                                    app.set_status(format!(
+                                                        "Error: {}",
+                                                        stderr.trim()
+                                                    ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", e));
+                                                    app.set_status(format!("Error: {}", e));
                                                 }
                                             }
                                         }
@@ -978,7 +991,7 @@ fn main() -> Result<()> {
                                                         fetch_sessions(&app.session_states);
                                                     app.clamp_selected();
                                                     app.last_refresh = std::time::Instant::now();
-                                                    app.status_message = Some(format!(
+                                                    app.set_status(format!(
                                                         "Merged PR #{} ({})",
                                                         number,
                                                         strategy.label()
@@ -986,12 +999,13 @@ fn main() -> Result<()> {
                                                 }
                                                 Ok(o) => {
                                                     let stderr = String::from_utf8_lossy(&o.stderr);
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", stderr.trim()));
+                                                    app.set_status(format!(
+                                                        "Error: {}",
+                                                        stderr.trim()
+                                                    ));
                                                 }
                                                 Err(e) => {
-                                                    app.status_message =
-                                                        Some(format!("Error: {}", e));
+                                                    app.set_status(format!("Error: {}", e));
                                                 }
                                             }
                                         }
@@ -1126,8 +1140,7 @@ fn main() -> Result<()> {
                                 if !cmd.is_empty() {
                                     let repo = app.repo.clone();
                                     let _ = set_verify_command(&repo, &cmd);
-                                    app.status_message =
-                                        Some(format!("Saved verify command: {}", cmd));
+                                    app.set_status(format!("Saved verify command: {}", cmd));
 
                                     // Now execute the verify command
                                     if let Some(card) = app.worktrees.get(app.selected_card[1]) {
@@ -1167,8 +1180,7 @@ fn main() -> Result<()> {
                                 if !cmd.is_empty() {
                                     let repo = app.repo.clone();
                                     let _ = set_editor_command(&repo, &cmd);
-                                    app.status_message =
-                                        Some(format!("Saved editor command: {}", cmd));
+                                    app.set_status(format!("Saved editor command: {}", cmd));
 
                                     // Now launch the editor
                                     if let Some(card) = app.worktrees.get(app.selected_card[1]) {
