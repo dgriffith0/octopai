@@ -52,7 +52,7 @@ pub fn start_event_socket(states: SessionStates, message_log: MessageLog) -> io:
 pub fn ensure_hook_script() -> std::result::Result<PathBuf, String> {
     let config_dir = dirs::home_dir()
         .ok_or("Could not find home directory")?
-        .join(".config/roctopai");
+        .join(".config/octopai");
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
 
     let script_path = config_dir.join("event-hook.sh");

@@ -298,7 +298,7 @@ pub fn create_worktree_and_session(
     );
 
     // Write prompt to a temp file for safe shell expansion
-    let prompt_file = format!("/tmp/roctopai-prompt-{}.txt", number);
+    let prompt_file = format!("/tmp/octopai-prompt-{}.txt", number);
     fs::write(&prompt_file, &prompt).map_err(|e| format!("Failed to write prompt file: {}", e))?;
 
     // Send session command to the single pane

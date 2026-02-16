@@ -1285,14 +1285,14 @@ mod tests {
 
     #[test]
     fn test_shell_cmd_format() {
-        let prompt_file = "/tmp/roctopai-prompt-42.txt";
+        let prompt_file = "/tmp/octopai-prompt-42.txt";
         let shell_cmd = format!(
             "claude \"$(cat '{}')\" --allowedTools Read,Edit,Bash",
             prompt_file
         );
         assert_eq!(
             shell_cmd,
-            "claude \"$(cat '/tmp/roctopai-prompt-42.txt')\" --allowedTools Read,Edit,Bash"
+            "claude \"$(cat '/tmp/octopai-prompt-42.txt')\" --allowedTools Read,Edit,Bash"
         );
     }
 
@@ -1303,7 +1303,7 @@ mod tests {
             return;
         }
 
-        let session = "roctopai-test-sendkeys";
+        let session = "octopai-test-sendkeys";
 
         // Kill any leftover test session
         let _ = Command::new("tmux")
@@ -1318,8 +1318,8 @@ mod tests {
         assert!(output.status.success(), "Failed to create tmux session");
 
         // Write a test prompt to a file
-        let test_prompt = "Hello from roctopai test";
-        let prompt_file = "/tmp/roctopai-test-prompt.txt";
+        let test_prompt = "Hello from octopai test";
+        let prompt_file = "/tmp/octopai-test-prompt.txt";
         fs::write(prompt_file, test_prompt).expect("Failed to write prompt file");
 
         // Use the same send-keys approach as production code
@@ -1362,7 +1362,7 @@ mod tests {
             return;
         }
 
-        let session = "roctopai-test-expansion";
+        let session = "octopai-test-expansion";
 
         let _ = Command::new("tmux")
             .args(["kill-session", "-t", session])
@@ -1375,7 +1375,7 @@ mod tests {
         assert!(output.status.success());
 
         // Write test content
-        let prompt_file = "/tmp/roctopai-test-expansion.txt";
+        let prompt_file = "/tmp/octopai-test-expansion.txt";
         fs::write(prompt_file, "expanded-prompt-content").unwrap();
 
         // Use the exact same pattern as the claude command

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="image.png" alt="roctopai" width="200" />
+  <img src="image.png" alt="octopai" width="200" />
 </p>
 
-<h1 align="center">roctopai</h1>
+<h1 align="center">octopai</h1>
 
 <p align="center">A terminal UI for managing GitHub issues, worktrees, and AI-powered coding sessions.<br/>Built with Rust and <a href="https://github.com/ratatui/ratatui">Ratatui</a>.</p>
 
@@ -10,9 +10,9 @@
 
 ## Why use it
 
-Turning a GitHub issue into a working pull request involves a lot of manual steps: creating a branch, setting up a worktree, launching an AI assistant with the right context, monitoring progress, and managing the resulting PR. Roctopai collapses all of that into a single kanban board in your terminal.
+Turning a GitHub issue into a working pull request involves a lot of manual steps: creating a branch, setting up a worktree, launching an AI assistant with the right context, monitoring progress, and managing the resulting PR. Octopai collapses all of that into a single kanban board in your terminal.
 
-- **One keypress to go from issue to AI session** — press `w` on any issue and roctopai creates a worktree, opens a tmux session, and drops Claude or Cursor in with the full issue context
+- **One keypress to go from issue to AI session** — press `w` on any issue and octopai creates a worktree, opens a tmux session, and drops Claude or Cursor in with the full issue context
 - **Everything in one view** — issues, worktrees, sessions, and pull requests shown side by side
 - **Real-time status** — see whether Claude is working, idle, or waiting for permission
 - **Full lifecycle management** — create issues, review PRs, merge, revert, and clean up worktrees
@@ -22,15 +22,25 @@ Turning a GitHub issue into a working pull request involves a lot of manual step
 
 ## Requirements
 
-[gh](https://cli.github.com/) (authenticated), [git](https://git-scm.com/), [tmux](https://github.com/tmux/tmux), [nvim](https://neovim.io/), [python3](https://www.python.org/), and [claude](https://docs.anthropic.com/en/docs/claude-code) or [cursor](https://www.cursor.com/). Roctopai checks for these on startup and will tell you what's missing.
+[gh](https://cli.github.com/) (authenticated), [git](https://git-scm.com/), [tmux](https://github.com/tmux/tmux), [nvim](https://neovim.io/), [python3](https://www.python.org/), and [claude](https://docs.anthropic.com/en/docs/claude-code) or [cursor](https://www.cursor.com/). Octopai checks for these on startup and will tell you what's missing.
 
 ---
 
 ## Quick start
 
+From GitHub:
+
 ```sh
+cargo install --git https://github.com/dgriffith0/octopai
+```
+
+Or clone and install locally:
+
+```sh
+git clone https://github.com/dgriffith0/octopai.git
+cd octopai
 cargo install --path .
-roctopai
+octopai
 ```
 
 On first launch you'll be prompted to enter a GitHub user or organization name. Pick a repository and you're on the board.
