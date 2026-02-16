@@ -17,8 +17,8 @@ use crate::models::{
     StateFilter, TextInput, REFRESH_INTERVAL,
 };
 use crate::session::{
-    COMMAND_SHORTCUTS, DEFAULT_CLAUDE_COMMAND, DEFAULT_EDITOR_COMMAND, EDITOR_TEMPLATE_FIELDS,
-    SESSION_SHORTCUTS, TEMPLATE_FIELDS,
+    default_editor_command, COMMAND_SHORTCUTS, DEFAULT_CLAUDE_COMMAND, DEFAULT_EDITOR_COMMAND,
+    EDITOR_TEMPLATE_FIELDS, SESSION_SHORTCUTS, TEMPLATE_FIELDS,
 };
 
 /// Build spans for a TextInput showing the cursor at the correct position.
@@ -1320,9 +1320,8 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
             .borders(Borders::ALL)
             .border_style(editor_border)
             .title(" Command ");
-        let editor_placeholder = std::env::var("EDITOR")
-            .map(|e| format!("{e} {{directory}}"))
-            .unwrap_or_else(|_| DEFAULT_EDITOR_COMMAND.to_string());
+        let editor_placeholder =
+            default_editor_command().unwrap_or_else(|| DEFAULT_EDITOR_COMMAND.to_string());
         let editor_spans = if config_edit.editor_command.is_empty() && !editor_active {
             vec![Span::styled(
                 editor_placeholder,

@@ -174,6 +174,57 @@ pub const COMMAND_SHORTCUTS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Known terminal emulators and their command prefixes for launching with
+/// a working directory and running a command. Used for auto-detection when
+/// no editor command is configured.
+const KNOWN_TERMINALS: &[(&str, &str)] = &[
+    ("alacritty", "alacritty --working-directory {directory} -e"),
+    ("kitty", "kitty -d {directory} -e"),
+    ("wezterm", "wezterm start --cwd {directory} --"),
+];
+
+/// Detect the default terminal emulator command prefix.
+///
+/// Checks `$TERMINAL` first, then probes for known terminals on `$PATH`.
+/// Returns the command prefix with `{directory}` placeholder, or `None`.
+pub fn detect_terminal() -> Option<String> {
+    // Check $TERMINAL environment variable
+    if let Ok(terminal) = std::env::var("TERMINAL") {
+        // If it matches a known terminal, use the full prefix
+        for (name, prefix) in KNOWN_TERMINALS {
+            if terminal == *name || terminal.ends_with(&format!("/{name}")) {
+                return Some(prefix.to_string());
+            }
+        }
+        // Unknown terminal: assume it accepts a command as trailing args
+        return Some(format!("{terminal} "));
+    }
+
+    // Probe for known terminals on PATH
+    for (name, prefix) in KNOWN_TERMINALS {
+        if Command::new("which")
+            .arg(name)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Some(prefix.to_string());
+        }
+    }
+
+    None
+}
+
+/// Build a default editor command from `$EDITOR` and a detected terminal.
+///
+/// Returns `Some("terminal_prefix $EDITOR {directory}")` when both are
+/// available, or `None` otherwise.
+pub fn default_editor_command() -> Option<String> {
+    let editor = std::env::var("EDITOR").ok()?;
+    let terminal_prefix = detect_terminal()?;
+    Some(format!("{terminal_prefix} {editor} {{directory}}"))
+}
+
 /// Expand shortcut templates in a command string.
 fn expand_shortcuts(template: &str) -> String {
     let mut result = template.to_string();
