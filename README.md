@@ -22,7 +22,7 @@ Turning a GitHub issue into a working pull request involves a lot of manual step
 
 ## Requirements
 
-[gh](https://cli.github.com/) (authenticated), [git](https://git-scm.com/), [tmux](https://github.com/tmux/tmux), [nvim](https://neovim.io/), [python3](https://www.python.org/), and [claude](https://docs.anthropic.com/en/docs/claude-code) or [cursor](https://www.cursor.com/). Octopai checks for these on startup and will tell you what's missing.
+[gh](https://cli.github.com/) (authenticated), [git](https://git-scm.com/), [tmux](https://github.com/tmux/tmux), [python3](https://www.python.org/), and [claude](https://docs.anthropic.com/en/docs/claude-code) or [cursor](https://www.cursor.com/). Octopai checks for these on startup and will tell you what's missing.
 
 ---
 
