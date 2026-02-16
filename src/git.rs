@@ -11,6 +11,33 @@ pub fn get_repo_name(repo: &str) -> &str {
     repo.split('/').last().unwrap_or(repo)
 }
 
+/// Detect the GitHub "owner/repo" for the current working directory by
+/// asking `gh` which repository this directory belongs to.
+pub fn detect_current_repo() -> Option<String> {
+    let output = Command::new("gh")
+        .args([
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "-q",
+            ".nameWithOwner",
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let repo = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if repo.is_empty() || !repo.contains('/') {
+        return None;
+    }
+
+    Some(repo)
+}
+
 pub fn fetch_worktrees() -> Vec<Card> {
     let output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
