@@ -17,7 +17,8 @@ use crate::models::{
     TextInput, REFRESH_INTERVAL,
 };
 use crate::session::{
-    DEFAULT_CLAUDE_COMMAND, DEFAULT_EDITOR_COMMAND, EDITOR_TEMPLATE_FIELDS, TEMPLATE_FIELDS,
+    COMMAND_SHORTCUTS, DEFAULT_CLAUDE_COMMAND, DEFAULT_EDITOR_COMMAND, EDITOR_TEMPLATE_FIELDS,
+    TEMPLATE_FIELDS,
 };
 
 /// Build spans for a TextInput showing the cursor at the correct position.
@@ -1334,6 +1335,24 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
             lines.push(Line::from(vec![
                 Span::styled(format!("    {} ", field), Style::default().fg(Color::Cyan)),
                 Span::styled(format!("- {}", desc), Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+        // Command shortcuts
+        lines.push(Line::from(vec![Span::styled(
+            "  Shortcuts (expand {directory} automatically):",
+            Style::default().fg(Color::Gray),
+        )]));
+        for (shortcut, expansion, desc) in COMMAND_SHORTCUTS {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("    {} ", shortcut),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(format!("- {} ", desc), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("({})", expansion),
+                    Style::default().fg(Color::DarkGray),
+                ),
             ]));
         }
         // Claude template fields
