@@ -112,8 +112,7 @@ pub const DEFAULT_CLAUDE_COMMAND: &str =
     "claude \"$(cat '{prompt_file}')\" --allowedTools Read,Edit,Bash";
 
 /// Default command template for Cursor sessions.
-pub const DEFAULT_CURSOR_COMMAND: &str =
-    "cursor \"$(cat '{prompt_file}')\" --allowedTools Read,Edit,Bash";
+pub const DEFAULT_CURSOR_COMMAND: &str = "cursor-agent \"$(cat '{prompt_file}')\"";
 
 /// Available template fields for the session command configuration.
 /// Each tuple is (field_name, description).
