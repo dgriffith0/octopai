@@ -85,10 +85,8 @@ pub fn get_editor_command(repo: &str) -> Option<String> {
     if saved.is_some() {
         return saved;
     }
-    // Fall back to $EDITOR environment variable
-    std::env::var("EDITOR")
-        .ok()
-        .map(|editor| format!("{editor} {{directory}}"))
+    // Fall back to detected terminal + $EDITOR
+    crate::session::default_editor_command()
 }
 
 pub fn set_editor_command(repo: &str, command: &str) -> Result<()> {
