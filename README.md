@@ -102,7 +102,6 @@ While GNU Screen works as a fallback, tmux provides a better experience with oct
 
 - **Pane capture** — tmux's `capture-pane` reads pane content directly from its internal buffer, which is faster and more reliable than Screen's `hardcopy` approach of writing to a temporary file
 - **Scripting interface** — tmux commands return structured, predictable output that's easier to parse for session listing and state detection
-- **Active maintenance** — tmux is actively developed with regular releases, while GNU Screen sees infrequent updates
 - **Working directory support** — tmux's `-c` flag sets the starting directory natively when creating sessions, avoiding extra shell commands
 
 Press `C` to configure per-repo session commands. Templates support: `{prompt_file}`, `{issue_number}`, `{repo}`, `{title}`, `{body}`, `{branch}`, `{worktree_path}`, `{claude}`, `{cursor}`.
