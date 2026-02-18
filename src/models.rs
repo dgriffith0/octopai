@@ -136,9 +136,10 @@ pub struct ConfigEditState {
     pub verify_command: TextInput,
     pub editor_command: TextInput,
     pub pr_ready: bool,
+    pub auto_open_pr: bool,
     pub session_command: TextInput,
     pub multiplexer: crate::session::Multiplexer,
-    pub active_field: usize, // 0 = verify, 1 = editor, 2 = pr_ready, 3 = session_command, 4 = multiplexer
+    pub active_field: usize, // 0 = verify, 1 = editor, 2 = pr_ready, 3 = auto_open_pr, 4 = session_command, 5 = multiplexer
 }
 
 impl ConfigEditState {
@@ -146,6 +147,7 @@ impl ConfigEditState {
         verify_command: String,
         editor_command: String,
         pr_ready: bool,
+        auto_open_pr: bool,
         session_command: String,
         multiplexer: crate::session::Multiplexer,
     ) -> Self {
@@ -153,6 +155,7 @@ impl ConfigEditState {
             verify_command: TextInput::from(verify_command),
             editor_command: TextInput::from(editor_command),
             pr_ready,
+            auto_open_pr,
             session_command: TextInput::from(session_command),
             multiplexer,
             active_field: 0,

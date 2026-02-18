@@ -1350,31 +1350,35 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // verify label
-                Constraint::Length(3), // verify input
-                Constraint::Length(1), // spacing
-                Constraint::Length(1), // editor label
-                Constraint::Length(3), // editor input
-                Constraint::Length(1), // spacing
-                Constraint::Length(1), // pr ready label
-                Constraint::Length(1), // pr ready toggle
-                Constraint::Length(1), // spacing
-                Constraint::Length(1), // session command label
-                Constraint::Length(3), // session command input
-                Constraint::Length(1), // spacing
-                Constraint::Length(1), // multiplexer label
-                Constraint::Length(1), // multiplexer toggle
-                Constraint::Length(1), // spacing
-                Constraint::Length(1), // template fields header
-                Constraint::Min(0),    // template fields list + config path
+                Constraint::Length(1), // 0: verify label
+                Constraint::Length(3), // 1: verify input
+                Constraint::Length(1), // 2: spacing
+                Constraint::Length(1), // 3: editor label
+                Constraint::Length(3), // 4: editor input
+                Constraint::Length(1), // 5: spacing
+                Constraint::Length(1), // 6: pr ready label
+                Constraint::Length(1), // 7: pr ready toggle
+                Constraint::Length(1), // 8: spacing
+                Constraint::Length(1), // 9: auto open pr label
+                Constraint::Length(1), // 10: auto open pr toggle
+                Constraint::Length(1), // 11: spacing
+                Constraint::Length(1), // 12: session command label
+                Constraint::Length(3), // 13: session command input
+                Constraint::Length(1), // 14: spacing
+                Constraint::Length(1), // 15: multiplexer label
+                Constraint::Length(1), // 16: multiplexer toggle
+                Constraint::Length(1), // 17: spacing
+                Constraint::Length(1), // 18: template fields header
+                Constraint::Min(0),    // 19: template fields list + config path
             ])
             .split(inner);
 
         let verify_active = config_edit.active_field == 0;
         let editor_active = config_edit.active_field == 1;
         let pr_ready_active = config_edit.active_field == 2;
-        let session_active = config_edit.active_field == 3;
-        let mux_active = config_edit.active_field == 4;
+        let auto_open_pr_active = config_edit.active_field == 3;
+        let session_active = config_edit.active_field == 4;
+        let mux_active = config_edit.active_field == 5;
 
         // Verify command field
         let verify_label = Paragraph::new(Line::from(vec![Span::styled(
@@ -1494,6 +1498,47 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
         ]));
         frame.render_widget(pr_ready_text, chunks[7]);
 
+        // Auto Open PR toggle field
+        let auto_open_pr_label = Paragraph::new(Line::from(vec![Span::styled(
+            "Auto Open PRs",
+            Style::default()
+                .fg(if auto_open_pr_active {
+                    Color::Cyan
+                } else {
+                    Color::Gray
+                })
+                .add_modifier(Modifier::BOLD),
+        )]));
+        frame.render_widget(auto_open_pr_label, chunks[9]);
+
+        let auto_open_checkbox = if config_edit.auto_open_pr {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        let auto_open_toggle_color = if auto_open_pr_active {
+            Color::White
+        } else {
+            Color::DarkGray
+        };
+        let auto_open_pr_text = Paragraph::new(Line::from(vec![
+            Span::styled(
+                auto_open_checkbox,
+                Style::default()
+                    .fg(auto_open_toggle_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if config_edit.auto_open_pr {
+                    "  Enabled — sessions will auto-open PRs"
+                } else {
+                    "  Disabled — sessions will only commit and push"
+                },
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        frame.render_widget(auto_open_pr_text, chunks[10]);
+
         // Session command field
         let session_label = Paragraph::new(Line::from(vec![Span::styled(
             "Session Command",
@@ -1505,7 +1550,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 })
                 .add_modifier(Modifier::BOLD),
         )]));
-        frame.render_widget(session_label, chunks[9]);
+        frame.render_widget(session_label, chunks[12]);
 
         let session_border = if session_active {
             Style::default()
@@ -1534,7 +1579,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
             )
         };
         let session_text = Paragraph::new(Line::from(session_spans)).block(session_block);
-        frame.render_widget(session_text, chunks[10]);
+        frame.render_widget(session_text, chunks[13]);
 
         // Multiplexer toggle field
         let mux_label = Paragraph::new(Line::from(vec![Span::styled(
@@ -1543,7 +1588,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 .fg(if mux_active { Color::Cyan } else { Color::Gray })
                 .add_modifier(Modifier::BOLD),
         )]));
-        frame.render_widget(mux_label, chunks[12]);
+        frame.render_widget(mux_label, chunks[15]);
 
         let mux_toggle_color = if mux_active {
             Color::White
@@ -1568,7 +1613,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 Style::default().fg(Color::DarkGray),
             ),
         ]));
-        frame.render_widget(mux_text, chunks[13]);
+        frame.render_widget(mux_text, chunks[16]);
 
         // Template fields header
         let fields_header = Paragraph::new(Line::from(vec![Span::styled(
@@ -1577,7 +1622,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 .fg(Color::Gray)
                 .add_modifier(Modifier::BOLD),
         )]));
-        frame.render_widget(fields_header, chunks[15]);
+        frame.render_widget(fields_header, chunks[18]);
 
         // Template fields list + config path in the remaining space
         let mut lines: Vec<Line> = Vec::new();
@@ -1648,7 +1693,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
             ),
         ]));
         let fields_list = Paragraph::new(lines);
-        frame.render_widget(fields_list, chunks[16]);
+        frame.render_widget(fields_list, chunks[19]);
     }
 
     // Bottom hint bar

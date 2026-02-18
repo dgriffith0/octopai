@@ -464,6 +464,7 @@ pub fn create_session_for_worktree(
     worktree_path: &str,
     hook_script: Option<&str>,
     pr_ready: bool,
+    auto_open_pr: bool,
     session_command: Option<&str>,
     mux: Multiplexer,
 ) -> std::result::Result<(), String> {
@@ -502,16 +503,22 @@ pub fn create_session_for_worktree(
             .join(" ")
     };
 
-    let pr_instruction = if pr_ready {
-        "open a pull request"
+    let prompt = if auto_open_pr {
+        let pr_instruction = if pr_ready {
+            "open a pull request"
+        } else {
+            "open a draft pull request"
+        };
+        format!(
+            "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and {} with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body. Use '--assignee @me' when creating the pull request to auto-assign it.",
+            number, repo, title, body_clean, pr_instruction, number
+        )
     } else {
-        "open a draft pull request"
+        format!(
+            "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and push the branch.",
+            number, repo, title, body_clean
+        )
     };
-
-    let prompt = format!(
-        "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and {} with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body. Use '--assignee @me' when creating the pull request to auto-assign it.",
-        number, repo, title, body_clean, pr_instruction, number
-    );
 
     // Write prompt to a temp file for safe shell expansion
     let prompt_file = format!("/tmp/octopai-prompt-{}.txt", number);
@@ -546,6 +553,7 @@ pub fn create_worktree_and_session(
     body: &str,
     hook_script: Option<&str>,
     pr_ready: bool,
+    auto_open_pr: bool,
     session_command: Option<&str>,
     mux: Multiplexer,
 ) -> std::result::Result<(), String> {
@@ -599,16 +607,22 @@ pub fn create_worktree_and_session(
             .join(" ")
     };
 
-    let pr_instruction = if pr_ready {
-        "open a pull request"
+    let prompt = if auto_open_pr {
+        let pr_instruction = if pr_ready {
+            "open a pull request"
+        } else {
+            "open a draft pull request"
+        };
+        format!(
+            "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and {} with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body. Use '--assignee @me' when creating the pull request to auto-assign it.",
+            number, repo, title, body_clean, pr_instruction, number
+        )
     } else {
-        "open a draft pull request"
+        format!(
+            "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and push the branch.",
+            number, repo, title, body_clean
+        )
     };
-
-    let prompt = format!(
-        "You are working on GitHub issue #{} for the repo {}. Title: {}. {} Please investigate the codebase and implement a solution for this issue. When you are confident the problem is solved, commit your changes and {} with a clear title and description that explains what was changed and why. Reference the issue with 'Closes #{}' in the PR body. Use '--assignee @me' when creating the pull request to auto-assign it.",
-        number, repo, title, body_clean, pr_instruction, number
-    );
 
     // Write prompt to a temp file for safe shell expansion
     let prompt_file = format!("/tmp/octopai-prompt-{}.txt", number);
