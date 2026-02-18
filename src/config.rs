@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::Multiplexer;
 
+fn default_auto_open_pr() -> HashMap<String, bool> {
+    HashMap::new()
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub repo: String,
@@ -16,6 +20,8 @@ pub struct Config {
     pub editor_commands: HashMap<String, String>,
     #[serde(default)]
     pub pr_ready: HashMap<String, bool>,
+    #[serde(default = "default_auto_open_pr")]
+    pub auto_open_pr: HashMap<String, bool>,
     #[serde(default, alias = "claude_commands")]
     pub session_commands: HashMap<String, String>,
     #[serde(default)]
@@ -50,6 +56,10 @@ pub fn save_config(repo: &str) -> Result<()> {
         .as_ref()
         .map(|c| c.pr_ready.clone())
         .unwrap_or_default();
+    let auto_open_pr = existing
+        .as_ref()
+        .map(|c| c.auto_open_pr.clone())
+        .unwrap_or_default();
     let path = config_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -64,6 +74,7 @@ pub fn save_config(repo: &str) -> Result<()> {
         verify_commands,
         editor_commands,
         pr_ready,
+        auto_open_pr,
         session_commands,
         multiplexer,
     };
@@ -101,6 +112,7 @@ pub fn set_editor_command(repo: &str, command: &str) -> Result<()> {
         verify_commands: HashMap::new(),
         editor_commands: HashMap::new(),
         pr_ready: HashMap::new(),
+        auto_open_pr: HashMap::new(),
         session_commands: HashMap::new(),
         multiplexer: None,
     });
@@ -116,6 +128,7 @@ pub fn set_verify_command(repo: &str, command: &str) -> Result<()> {
         verify_commands: HashMap::new(),
         editor_commands: HashMap::new(),
         pr_ready: HashMap::new(),
+        auto_open_pr: HashMap::new(),
         session_commands: HashMap::new(),
         multiplexer: None,
     });
@@ -129,6 +142,12 @@ pub fn get_pr_ready(repo: &str) -> bool {
     load_config()
         .and_then(|c| c.pr_ready.get(repo).copied())
         .unwrap_or(false)
+}
+
+pub fn get_auto_open_pr(repo: &str) -> bool {
+    load_config()
+        .and_then(|c| c.auto_open_pr.get(repo).copied())
+        .unwrap_or(true)
 }
 
 pub fn get_session_command(repo: &str) -> Option<String> {

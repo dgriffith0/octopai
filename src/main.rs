@@ -25,8 +25,8 @@ use crossterm::{
 
 use app::App;
 use config::{
-    get_editor_command, get_multiplexer, get_pr_ready, get_session_command, get_verify_command,
-    load_config, save_config, set_editor_command, set_verify_command,
+    get_auto_open_pr, get_editor_command, get_multiplexer, get_pr_ready, get_session_command,
+    get_verify_command, load_config, save_config, set_editor_command, set_verify_command,
 };
 use deps::{check_dependencies, has_missing_required};
 use git::{detect_current_repo, fetch_worktrees, pull_main, remove_worktree};
@@ -256,7 +256,7 @@ fn main() -> Result<()> {
                                 app.screen = Screen::Board;
                             }
                             KeyCode::Tab => {
-                                config_edit.active_field = (config_edit.active_field + 1) % 5;
+                                config_edit.active_field = (config_edit.active_field + 1) % 6;
                             }
                             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                 let verify_cmd =
@@ -268,6 +268,7 @@ fn main() -> Result<()> {
                                 let repo = app.repo.clone();
 
                                 let pr_ready = config_edit.pr_ready;
+                                let auto_open_pr = config_edit.auto_open_pr;
 
                                 if let Some(mut config) = load_config() {
                                     if verify_cmd.is_empty() {
@@ -289,6 +290,11 @@ fn main() -> Result<()> {
                                     } else {
                                         config.pr_ready.remove(&repo);
                                     }
+                                    if !auto_open_pr {
+                                        config.auto_open_pr.insert(repo.clone(), false);
+                                    } else {
+                                        config.auto_open_pr.remove(&repo);
+                                    }
                                     if claude_cmd.is_empty() {
                                         config.session_commands.remove(&repo);
                                     } else {
@@ -308,31 +314,31 @@ fn main() -> Result<()> {
                             KeyCode::Backspace => match config_edit.active_field {
                                 0 => config_edit.verify_command.delete_back(),
                                 1 => config_edit.editor_command.delete_back(),
-                                3 => config_edit.session_command.delete_back(),
+                                4 => config_edit.session_command.delete_back(),
                                 _ => {}
                             },
                             KeyCode::Left => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_left(),
                                 1 => config_edit.editor_command.move_left(),
-                                3 => config_edit.session_command.move_left(),
+                                4 => config_edit.session_command.move_left(),
                                 _ => {}
                             },
                             KeyCode::Right => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_right(),
                                 1 => config_edit.editor_command.move_right(),
-                                3 => config_edit.session_command.move_right(),
+                                4 => config_edit.session_command.move_right(),
                                 _ => {}
                             },
                             KeyCode::Home => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_home(),
                                 1 => config_edit.editor_command.move_home(),
-                                3 => config_edit.session_command.move_home(),
+                                4 => config_edit.session_command.move_home(),
                                 _ => {}
                             },
                             KeyCode::End => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_end(),
                                 1 => config_edit.editor_command.move_end(),
-                                3 => config_edit.session_command.move_end(),
+                                4 => config_edit.session_command.move_end(),
                                 _ => {}
                             },
                             KeyCode::Char(' ') | KeyCode::Enter
@@ -341,7 +347,12 @@ fn main() -> Result<()> {
                                 config_edit.pr_ready = !config_edit.pr_ready;
                             }
                             KeyCode::Char(' ') | KeyCode::Enter
-                                if config_edit.active_field == 4 =>
+                                if config_edit.active_field == 3 =>
+                            {
+                                config_edit.auto_open_pr = !config_edit.auto_open_pr;
+                            }
+                            KeyCode::Char(' ') | KeyCode::Enter
+                                if config_edit.active_field == 5 =>
                             {
                                 config_edit.multiplexer = match config_edit.multiplexer {
                                     Multiplexer::Tmux => Multiplexer::Screen,
@@ -351,7 +362,7 @@ fn main() -> Result<()> {
                             KeyCode::Char(c) => match config_edit.active_field {
                                 0 => config_edit.verify_command.insert(c),
                                 1 => config_edit.editor_command.insert(c),
-                                3 => config_edit.session_command.insert(c),
+                                4 => config_edit.session_command.insert(c),
                                 _ => {}
                             },
                             _ => {}
@@ -582,6 +593,7 @@ fn main() -> Result<()> {
                                                     .unwrap_or_default();
                                                 let repo = app.repo.clone();
                                                 let pr_ready = get_pr_ready(&repo);
+                                                let auto_open_pr = get_auto_open_pr(&repo);
                                                 let claude_cmd = get_session_command(&repo);
                                                 let hook_script = app.hook_script_path.clone();
                                                 let mux = app.multiplexer;
@@ -599,6 +611,7 @@ fn main() -> Result<()> {
                                                         &body,
                                                         hook_script.as_deref(),
                                                         pr_ready,
+                                                        auto_open_pr,
                                                         claude_cmd.as_deref(),
                                                         mux,
                                                     )
@@ -668,6 +681,8 @@ fn main() -> Result<()> {
                                                         let result = fetch_issue(&repo, number)
                                                             .and_then(|(title, body)| {
                                                                 let pr_ready = get_pr_ready(&repo);
+                                                                let auto_open_pr =
+                                                                    get_auto_open_pr(&repo);
                                                                 let claude_cmd =
                                                                     get_session_command(&repo);
                                                                 create_session_for_worktree(
@@ -679,6 +694,7 @@ fn main() -> Result<()> {
                                                                     &worktree_path,
                                                                     hook_script.as_deref(),
                                                                     pr_ready,
+                                                                    auto_open_pr,
                                                                     claude_cmd.as_deref(),
                                                                     mux,
                                                                 )
@@ -788,12 +804,14 @@ fn main() -> Result<()> {
                                     let current_editor =
                                         get_editor_command(&app.repo).unwrap_or_default();
                                     let current_pr_ready = get_pr_ready(&app.repo);
+                                    let current_auto_open_pr = get_auto_open_pr(&app.repo);
                                     let current_claude =
                                         get_session_command(&app.repo).unwrap_or_default();
                                     app.config_edit = Some(ConfigEditState::new(
                                         current_verify,
                                         current_editor,
                                         current_pr_ready,
+                                        current_auto_open_pr,
                                         current_claude,
                                         app.multiplexer,
                                     ));
@@ -1271,6 +1289,8 @@ fn main() -> Result<()> {
                                                     Ok(number) => {
                                                         let worktree_result = if create_worktree {
                                                             let pr_ready = get_pr_ready(&repo);
+                                                            let auto_open_pr =
+                                                                get_auto_open_pr(&repo);
                                                             Some(create_worktree_and_session(
                                                                 &repo,
                                                                 number,
@@ -1278,6 +1298,7 @@ fn main() -> Result<()> {
                                                                 &body,
                                                                 hook_script.as_deref(),
                                                                 pr_ready,
+                                                                auto_open_pr,
                                                                 claude_cmd.as_deref(),
                                                                 mux,
                                                             ))
