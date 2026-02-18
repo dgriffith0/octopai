@@ -120,6 +120,7 @@ pub fn fetch_issues(repo: &str, state: StateFilter, assignee: AssigneeFilter) ->
                 is_draft: None,
                 is_merged: None,
                 head_branch: None,
+                is_local: false,
             }
         })
         .collect();
@@ -203,6 +204,7 @@ pub fn fetch_prs(repo: &str, state: StateFilter, assignee: AssigneeFilter) -> Ve
                 is_draft: Some(is_draft),
                 is_merged: Some(is_merged),
                 head_branch: Some(branch),
+                is_local: false,
             }
         })
         .collect();

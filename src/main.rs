@@ -4,6 +4,7 @@ mod deps;
 mod git;
 mod github;
 mod hooks;
+mod local_issues;
 mod models;
 mod session;
 mod ui;
@@ -34,6 +35,7 @@ use github::{
     close_issue, create_issue, edit_issue, fetch_issue, fetch_issues, fetch_prs, fetch_repos,
 };
 use hooks::start_event_socket;
+use local_issues::{close_local_issue, create_local_issue, edit_local_issue};
 use models::{
     AiSetupState, ConfigEditState, ConfirmAction, ConfirmModal, EditIssueModal, IssueEditResult,
     IssueModal, IssueSubmitResult, MergeStrategy, MessageLog, Mode, RepoSelectPhase, Screen,
@@ -154,11 +156,7 @@ fn main() -> Result<()> {
                         worktree_result,
                         ..
                     } => {
-                        app.issues = fetch_issues(
-                            &app.repo,
-                            app.issue_state_filter,
-                            app.issue_assignee_filter,
-                        );
+                        app.refresh_data();
                         app.clamp_selected();
                         app.last_refresh = std::time::Instant::now();
                         app.issue_modal = None;
@@ -200,13 +198,7 @@ fn main() -> Result<()> {
                 app.issue_edit_rx = None;
                 match result {
                     IssueEditResult::Success { number } => {
-                        app.issues = fetch_issues(
-                            &app.repo,
-                            app.issue_state_filter,
-                            app.issue_assignee_filter,
-                        );
-                        app.clamp_selected();
-                        app.last_refresh = std::time::Instant::now();
+                        app.refresh_data();
                         app.edit_issue_modal = None;
                         app.mode = Mode::Normal;
                         app.set_status(format!("Updated issue #{}", number));
@@ -688,47 +680,58 @@ fn main() -> Result<()> {
                                         && app.worktree_create_rx.is_none() =>
                                 {
                                     if let Some(card) = app.issues.get(app.selected_card[0]) {
-                                        // Extract issue number from id "issue-N"
-                                        if let Some(num_str) = card.id.strip_prefix("issue-") {
-                                            if let Ok(number) = num_str.parse::<u64>() {
-                                                let title = card.title.clone();
-                                                let body = card
-                                                    .full_description
-                                                    .clone()
-                                                    .unwrap_or_default();
-                                                let repo = app.repo.clone();
-                                                let pr_ready = get_pr_ready(&repo);
-                                                let auto_open_pr = get_auto_open_pr(&repo);
-                                                let claude_cmd = get_session_command(&repo);
-                                                let hook_script = app.hook_script_path.clone();
-                                                let mux = app.multiplexer;
-                                                let (tx, rx) = mpsc::channel();
-                                                app.worktree_create_rx = Some(rx);
-                                                app.loading_message = Some(format!(
-                                                    "Creating worktree and session for issue #{}...",
-                                                    number
-                                                ));
-                                                std::thread::spawn(move || {
-                                                    let result = create_worktree_and_session(
-                                                        &repo,
+                                        // Extract issue number from id "issue-N" or "local-N"
+                                        let issue_number = if let Some(num_str) =
+                                            card.id.strip_prefix("issue-")
+                                        {
+                                            num_str.parse::<u64>().ok()
+                                        } else if let Some(id_str) = card.id.strip_prefix("local-")
+                                        {
+                                            id_str.parse::<u64>().ok()
+                                        } else {
+                                            None
+                                        };
+                                        if let Some(number) = issue_number {
+                                            let title = card.title.clone();
+                                            let body =
+                                                card.full_description.clone().unwrap_or_default();
+                                            let repo = app.repo.clone();
+                                            let pr_ready = get_pr_ready(&repo);
+                                            let auto_open_pr = get_auto_open_pr(&repo);
+                                            let claude_cmd = get_session_command(&repo);
+                                            let hook_script = app.hook_script_path.clone();
+                                            let mux = app.multiplexer;
+                                            let (tx, rx) = mpsc::channel();
+                                            app.worktree_create_rx = Some(rx);
+                                            let label = if card.is_local {
+                                                format!("L-{}", number)
+                                            } else {
+                                                format!("#{}", number)
+                                            };
+                                            app.loading_message = Some(format!(
+                                                "Creating worktree and session for issue {}...",
+                                                label
+                                            ));
+                                            std::thread::spawn(move || {
+                                                let result = create_worktree_and_session(
+                                                    &repo,
+                                                    number,
+                                                    &title,
+                                                    &body,
+                                                    hook_script.as_deref(),
+                                                    pr_ready,
+                                                    auto_open_pr,
+                                                    claude_cmd.as_deref(),
+                                                    mux,
+                                                )
+                                                .map_err(|e| e.to_string());
+                                                let _ = tx.send(
+                                                    WorktreeCreateResult::WorktreeAndSession {
                                                         number,
-                                                        &title,
-                                                        &body,
-                                                        hook_script.as_deref(),
-                                                        pr_ready,
-                                                        auto_open_pr,
-                                                        claude_cmd.as_deref(),
-                                                        mux,
-                                                    )
-                                                    .map_err(|e| e.to_string());
-                                                    let _ = tx.send(
-                                                        WorktreeCreateResult::WorktreeAndSession {
-                                                            number,
-                                                            result,
-                                                        },
-                                                    );
-                                                });
-                                            }
+                                                        result,
+                                                    },
+                                                );
+                                            });
                                         }
                                     }
                                 }
@@ -737,7 +740,22 @@ fn main() -> Result<()> {
                                         && app.issue_state_filter == StateFilter::Open =>
                                 {
                                     if let Some(card) = app.issues.get(app.selected_card[0]) {
-                                        if let Some(num_str) = card.id.strip_prefix("issue-") {
+                                        if card.is_local {
+                                            if let Some(id_str) = card.id.strip_prefix("local-") {
+                                                if let Ok(id) = id_str.parse::<u64>() {
+                                                    app.confirm_modal = Some(ConfirmModal {
+                                                        message: format!(
+                                                            "Close local issue L-{}?\n\n{}",
+                                                            id, card.title
+                                                        ),
+                                                        on_confirm:
+                                                            ConfirmAction::CloseLocalIssue { id },
+                                                    });
+                                                    app.mode = Mode::Confirming;
+                                                }
+                                            }
+                                        } else if let Some(num_str) = card.id.strip_prefix("issue-")
+                                        {
                                             if let Ok(number) = num_str.parse::<u64>() {
                                                 app.confirm_modal = Some(ConfirmModal {
                                                     message: format!(
@@ -755,7 +773,26 @@ fn main() -> Result<()> {
                                 }
                                 KeyCode::Char('e') if app.active_section == 0 => {
                                     if let Some(card) = app.issues.get(app.selected_card[0]) {
-                                        if let Some(num_str) = card.id.strip_prefix("issue-") {
+                                        if card.is_local {
+                                            if let Some(id_str) = card.id.strip_prefix("local-") {
+                                                if let Ok(id) = id_str.parse::<u64>() {
+                                                    let title = card
+                                                        .title
+                                                        .strip_prefix(&format!("L-{} ", id))
+                                                        .unwrap_or(&card.title)
+                                                        .to_string();
+                                                    let body = card
+                                                        .full_description
+                                                        .clone()
+                                                        .unwrap_or_default();
+                                                    app.edit_issue_modal = Some(
+                                                        EditIssueModal::new_local(id, title, body),
+                                                    );
+                                                    app.mode = Mode::EditingIssue;
+                                                }
+                                            }
+                                        } else if let Some(num_str) = card.id.strip_prefix("issue-")
+                                        {
                                             if let Ok(number) = num_str.parse::<u64>() {
                                                 // Extract title without the "#N " prefix
                                                 let title = card
@@ -1186,6 +1223,21 @@ fn main() -> Result<()> {
                                                 }
                                             }
                                         }
+                                        ConfirmAction::CloseLocalIssue { id } => {
+                                            let repo = app.repo.clone();
+                                            match close_local_issue(&repo, id) {
+                                                Ok(()) => {
+                                                    app.refresh_data();
+                                                    app.set_status(format!(
+                                                        "Closed local issue L-{}",
+                                                        id
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    app.set_status(format!("Error: {}", e));
+                                                }
+                                            }
+                                        }
                                         ConfirmAction::RemoveWorktree { path, branch } => {
                                             match remove_worktree(&path, &branch, app.multiplexer) {
                                                 Ok(()) => {
@@ -1406,6 +1458,7 @@ fn main() -> Result<()> {
                                         modal.active_field = match modal.active_field {
                                             0 => 1,
                                             1 => 2,
+                                            2 => 3,
                                             _ => 0,
                                         };
                                     }
@@ -1418,6 +1471,12 @@ fn main() -> Result<()> {
                                     KeyCode::Enter if modal.active_field == 2 => {
                                         modal.create_worktree = !modal.create_worktree;
                                     }
+                                    KeyCode::Char(' ') if modal.active_field == 3 => {
+                                        modal.local_only = !modal.local_only;
+                                    }
+                                    KeyCode::Enter if modal.active_field == 3 => {
+                                        modal.local_only = !modal.local_only;
+                                    }
                                     KeyCode::Char('s')
                                         if key.modifiers.contains(KeyModifiers::CONTROL)
                                             && !modal.submitting =>
@@ -1425,6 +1484,24 @@ fn main() -> Result<()> {
                                         let title = modal.title.value().trim().to_string();
                                         if title.is_empty() {
                                             modal.error = Some("Title cannot be empty".to_string());
+                                        } else if modal.local_only {
+                                            // Create local issue synchronously
+                                            let body = modal.body.value().to_string();
+                                            let repo = app.repo.clone();
+                                            match create_local_issue(&repo, &title, &body) {
+                                                Ok(id) => {
+                                                    app.issue_modal = None;
+                                                    app.mode = Mode::Normal;
+                                                    app.refresh_data();
+                                                    app.set_status(format!(
+                                                        "Created local issue L-{}",
+                                                        id
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    modal.error = Some(e);
+                                                }
+                                            }
                                         } else {
                                             modal.submitting = true;
                                             modal.error = None;
@@ -1585,6 +1662,24 @@ fn main() -> Result<()> {
                                         let title = modal.title.value().trim().to_string();
                                         if title.is_empty() {
                                             modal.error = Some("Title cannot be empty".to_string());
+                                        } else if modal.is_local {
+                                            let body = modal.body.value().to_string();
+                                            let repo = app.repo.clone();
+                                            let id = modal.number;
+                                            match edit_local_issue(&repo, id, &title, &body) {
+                                                Ok(()) => {
+                                                    app.edit_issue_modal = None;
+                                                    app.mode = Mode::Normal;
+                                                    app.refresh_data();
+                                                    app.set_status(format!(
+                                                        "Updated local issue L-{}",
+                                                        id
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    modal.error = Some(e);
+                                                }
+                                            }
                                         } else {
                                             modal.submitting = true;
                                             modal.error = None;
