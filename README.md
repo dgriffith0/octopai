@@ -70,7 +70,7 @@ cargo install --path .
 
 ## Quick start
 
-Run `octopai` in your terminal. On first launch you'll be prompted to enter a GitHub user or organization name. Pick a repository and you're on the board.
+Run `octopai` inside a GitHub-connected git repo and it will automatically detect the repository and open the board. If you run it outside a repo, you'll be prompted to enter a GitHub user or organization name and pick a repository. Press `Enter` on the board to switch repos at any time.
 
 ---
 
@@ -92,16 +92,20 @@ Four columns: **Issues**, **Worktrees**, **Sessions**, and **Pull Requests**. Us
 | Key | Action |
 |-----|--------|
 | `q` / `Esc` | Quit or cancel |
-| `Tab` / `Shift+Tab` | Switch column |
+| `Tab` / `l` | Next column |
+| `Shift+Tab` / `h` | Previous column |
 | `j` / `k` / arrows | Navigate cards |
-| `/` | Fuzzy filter all columns |
+| `/` | Fuzzy filter |
 | `Enter` | Change repo |
 | `R` | Force refresh |
 | `C` | Edit repo configuration |
+| `p` | Pull main branch |
+| `D` | Show dependency check |
+| `x` | Toggle message log |
 
-**Issues** — `n` new issue, `w` create worktree + session, `d` close, `s` toggle open/closed, `m` toggle assigned-to-me
+**Issues** — `n` new issue (with option to skip worktree), `w` create worktree + session, `d` close, `s` toggle open/closed, `m` toggle assigned-to-me
 
-**Worktrees** — `d` remove, `v` verify, `e` open editor
+**Worktrees** — `w` create session, `d` remove, `v` verify, `e` open editor
 
 **Sessions** — `a` attach, `d` kill
 
