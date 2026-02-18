@@ -68,10 +68,11 @@ fn main() -> Result<()> {
         app.screen = Screen::Dependencies;
     } else {
         app.dependencies = initial_deps;
-        // Load saved config, falling back to detecting the current git repo
+        // Detect the current git repo first, falling back to saved config
+        let detected_repo = detect_current_repo();
         let configured_repo = load_config().map(|c| c.repo).filter(|r| !r.is_empty());
 
-        let repo = configured_repo.or_else(detect_current_repo);
+        let repo = detected_repo.or(configured_repo);
 
         if let Some(repo) = repo {
             app.repo = repo.clone();
