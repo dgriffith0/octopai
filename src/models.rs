@@ -153,9 +153,10 @@ pub struct ConfigEditState {
     pub editor_command: TextInput,
     pub pr_ready: bool,
     pub auto_open_pr: bool,
+    pub default_local: bool,
     pub session_command: TextInput,
     pub multiplexer: crate::session::Multiplexer,
-    pub active_field: usize, // 0 = verify, 1 = editor, 2 = pr_ready, 3 = auto_open_pr, 4 = session_command, 5 = multiplexer
+    pub active_field: usize, // 0 = verify, 1 = editor, 2 = pr_ready, 3 = auto_open_pr, 4 = default_local, 5 = session_command, 6 = multiplexer
 }
 
 impl ConfigEditState {
@@ -164,6 +165,7 @@ impl ConfigEditState {
         editor_command: String,
         pr_ready: bool,
         auto_open_pr: bool,
+        default_local: bool,
         session_command: String,
         multiplexer: crate::session::Multiplexer,
     ) -> Self {
@@ -172,6 +174,7 @@ impl ConfigEditState {
             editor_command: TextInput::from(editor_command),
             pr_ready,
             auto_open_pr,
+            default_local,
             session_command: TextInput::from(session_command),
             multiplexer,
             active_field: 0,
@@ -233,15 +236,16 @@ impl RepoSelectState {
 pub struct IssueModal {
     pub title: TextInput,
     pub body: TextInput,
-    pub active_field: usize, // 0 = title, 1 = body, 2 = create_worktree toggle, 3 = local_only toggle
+    pub active_field: usize, // 0 = title, 1 = body, 2 = create_worktree toggle, 3 = auto_open_pr toggle, 4 = local_only toggle
     pub error: Option<String>,
     pub submitting: bool,
     pub create_worktree: bool,
+    pub auto_open_pr: bool,
     pub local_only: bool,
 }
 
 impl IssueModal {
-    pub fn new() -> Self {
+    pub fn new(default_local: bool, auto_open_pr: bool) -> Self {
         Self {
             title: TextInput::new(),
             body: TextInput::new(),
@@ -249,7 +253,8 @@ impl IssueModal {
             error: None,
             submitting: false,
             create_worktree: true,
-            local_only: false,
+            auto_open_pr,
+            local_only: default_local,
         }
     }
 }

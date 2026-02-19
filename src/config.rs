@@ -22,6 +22,8 @@ pub struct Config {
     pub pr_ready: HashMap<String, bool>,
     #[serde(default = "default_auto_open_pr")]
     pub auto_open_pr: HashMap<String, bool>,
+    #[serde(default)]
+    pub default_local: HashMap<String, bool>,
     #[serde(default, alias = "claude_commands")]
     pub session_commands: HashMap<String, String>,
     #[serde(default)]
@@ -64,6 +66,10 @@ pub fn save_config(repo: &str) -> Result<()> {
         .as_ref()
         .map(|c| c.auto_open_pr.clone())
         .unwrap_or_default();
+    let default_local = existing
+        .as_ref()
+        .map(|c| c.default_local.clone())
+        .unwrap_or_default();
     let path = config_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -82,6 +88,7 @@ pub fn save_config(repo: &str) -> Result<()> {
         editor_commands,
         pr_ready,
         auto_open_pr,
+        default_local,
         session_commands,
         multiplexer,
         default_session_command,
@@ -121,6 +128,7 @@ pub fn set_editor_command(repo: &str, command: &str) -> Result<()> {
         editor_commands: HashMap::new(),
         pr_ready: HashMap::new(),
         auto_open_pr: HashMap::new(),
+        default_local: HashMap::new(),
         session_commands: HashMap::new(),
         multiplexer: None,
         default_session_command: None,
@@ -138,6 +146,7 @@ pub fn set_verify_command(repo: &str, command: &str) -> Result<()> {
         editor_commands: HashMap::new(),
         pr_ready: HashMap::new(),
         auto_open_pr: HashMap::new(),
+        default_local: HashMap::new(),
         session_commands: HashMap::new(),
         multiplexer: None,
         default_session_command: None,
@@ -173,6 +182,12 @@ pub fn get_default_session_command() -> Option<String> {
     load_config()?.default_session_command
 }
 
+pub fn get_default_local(repo: &str) -> bool {
+    load_config()
+        .and_then(|c| c.default_local.get(repo).copied())
+        .unwrap_or(false)
+}
+
 pub fn set_default_session_command(command: &str) -> Result<()> {
     let mut config = load_config().unwrap_or(Config {
         repo: String::new(),
@@ -180,6 +195,7 @@ pub fn set_default_session_command(command: &str) -> Result<()> {
         editor_commands: HashMap::new(),
         pr_ready: HashMap::new(),
         auto_open_pr: HashMap::new(),
+        default_local: HashMap::new(),
         session_commands: HashMap::new(),
         multiplexer: None,
         default_session_command: None,

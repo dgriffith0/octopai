@@ -353,7 +353,7 @@ fn main() -> Result<()> {
                                 app.screen = Screen::Board;
                             }
                             KeyCode::Tab => {
-                                config_edit.active_field = (config_edit.active_field + 1) % 6;
+                                config_edit.active_field = (config_edit.active_field + 1) % 7;
                             }
                             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                                 let verify_cmd =
@@ -366,6 +366,7 @@ fn main() -> Result<()> {
 
                                 let pr_ready = config_edit.pr_ready;
                                 let auto_open_pr = config_edit.auto_open_pr;
+                                let default_local = config_edit.default_local;
 
                                 if let Some(mut config) = load_config() {
                                     if verify_cmd.is_empty() {
@@ -392,6 +393,11 @@ fn main() -> Result<()> {
                                     } else {
                                         config.auto_open_pr.remove(&repo);
                                     }
+                                    if default_local {
+                                        config.default_local.insert(repo.clone(), true);
+                                    } else {
+                                        config.default_local.remove(&repo);
+                                    }
                                     if claude_cmd.is_empty() {
                                         config.session_commands.remove(&repo);
                                     } else {
@@ -411,31 +417,31 @@ fn main() -> Result<()> {
                             KeyCode::Backspace => match config_edit.active_field {
                                 0 => config_edit.verify_command.delete_back(),
                                 1 => config_edit.editor_command.delete_back(),
-                                4 => config_edit.session_command.delete_back(),
+                                5 => config_edit.session_command.delete_back(),
                                 _ => {}
                             },
                             KeyCode::Left => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_left(),
                                 1 => config_edit.editor_command.move_left(),
-                                4 => config_edit.session_command.move_left(),
+                                5 => config_edit.session_command.move_left(),
                                 _ => {}
                             },
                             KeyCode::Right => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_right(),
                                 1 => config_edit.editor_command.move_right(),
-                                4 => config_edit.session_command.move_right(),
+                                5 => config_edit.session_command.move_right(),
                                 _ => {}
                             },
                             KeyCode::Home => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_home(),
                                 1 => config_edit.editor_command.move_home(),
-                                4 => config_edit.session_command.move_home(),
+                                5 => config_edit.session_command.move_home(),
                                 _ => {}
                             },
                             KeyCode::End => match config_edit.active_field {
                                 0 => config_edit.verify_command.move_end(),
                                 1 => config_edit.editor_command.move_end(),
-                                4 => config_edit.session_command.move_end(),
+                                5 => config_edit.session_command.move_end(),
                                 _ => {}
                             },
                             KeyCode::Char(' ') | KeyCode::Enter
@@ -449,7 +455,12 @@ fn main() -> Result<()> {
                                 config_edit.auto_open_pr = !config_edit.auto_open_pr;
                             }
                             KeyCode::Char(' ') | KeyCode::Enter
-                                if config_edit.active_field == 5 =>
+                                if config_edit.active_field == 4 =>
+                            {
+                                config_edit.default_local = !config_edit.default_local;
+                            }
+                            KeyCode::Char(' ') | KeyCode::Enter
+                                if config_edit.active_field == 6 =>
                             {
                                 config_edit.multiplexer = match config_edit.multiplexer {
                                     Multiplexer::Tmux => Multiplexer::Screen,
@@ -459,7 +470,7 @@ fn main() -> Result<()> {
                             KeyCode::Char(c) => match config_edit.active_field {
                                 0 => config_edit.verify_command.insert(c),
                                 1 => config_edit.editor_command.insert(c),
-                                4 => config_edit.session_command.insert(c),
+                                5 => config_edit.session_command.insert(c),
                                 _ => {}
                             },
                             _ => {}
@@ -673,7 +684,10 @@ fn main() -> Result<()> {
                                 }
                                 KeyCode::Char('n') if !is_filtering => {
                                     app.mode = Mode::CreatingIssue;
-                                    app.issue_modal = Some(IssueModal::new());
+                                    let default_local = config::get_default_local(&app.repo);
+                                    let auto_open_pr = get_auto_open_pr(&app.repo);
+                                    app.issue_modal =
+                                        Some(IssueModal::new(default_local, auto_open_pr));
                                 }
                                 KeyCode::Char('w')
                                     if app.active_section == 0
@@ -968,6 +982,8 @@ fn main() -> Result<()> {
                                         get_editor_command(&app.repo).unwrap_or_default();
                                     let current_pr_ready = get_pr_ready(&app.repo);
                                     let current_auto_open_pr = get_auto_open_pr(&app.repo);
+                                    let current_default_local =
+                                        config::get_default_local(&app.repo);
                                     let current_claude =
                                         get_session_command(&app.repo).unwrap_or_default();
                                     app.config_edit = Some(ConfigEditState::new(
@@ -975,6 +991,7 @@ fn main() -> Result<()> {
                                         current_editor,
                                         current_pr_ready,
                                         current_auto_open_pr,
+                                        current_default_local,
                                         current_claude,
                                         app.multiplexer,
                                     ));
@@ -1459,6 +1476,7 @@ fn main() -> Result<()> {
                                             0 => 1,
                                             1 => 2,
                                             2 => 3,
+                                            3 => 4,
                                             _ => 0,
                                         };
                                     }
@@ -1472,9 +1490,15 @@ fn main() -> Result<()> {
                                         modal.create_worktree = !modal.create_worktree;
                                     }
                                     KeyCode::Char(' ') if modal.active_field == 3 => {
-                                        modal.local_only = !modal.local_only;
+                                        modal.auto_open_pr = !modal.auto_open_pr;
                                     }
                                     KeyCode::Enter if modal.active_field == 3 => {
+                                        modal.auto_open_pr = !modal.auto_open_pr;
+                                    }
+                                    KeyCode::Char(' ') if modal.active_field == 4 => {
+                                        modal.local_only = !modal.local_only;
+                                    }
+                                    KeyCode::Enter if modal.active_field == 4 => {
                                         modal.local_only = !modal.local_only;
                                     }
                                     KeyCode::Char('s')
@@ -1511,6 +1535,7 @@ fn main() -> Result<()> {
                                             let claude_cmd = get_session_command(&repo);
                                             let mux = app.multiplexer;
                                             let create_worktree = modal.create_worktree;
+                                            let auto_open_pr = modal.auto_open_pr;
                                             let (tx, rx) = mpsc::channel();
                                             app.issue_submit_rx = Some(rx);
                                             std::thread::spawn(move || {
@@ -1518,8 +1543,6 @@ fn main() -> Result<()> {
                                                     Ok(number) => {
                                                         let worktree_result = if create_worktree {
                                                             let pr_ready = get_pr_ready(&repo);
-                                                            let auto_open_pr =
-                                                                get_auto_open_pr(&repo);
                                                             Some(create_worktree_and_session(
                                                                 &repo,
                                                                 number,
@@ -1583,7 +1606,7 @@ fn main() -> Result<()> {
                                             modal.body.move_end();
                                         }
                                     }
-                                    KeyCode::Char(c) if modal.active_field != 2 => {
+                                    KeyCode::Char(c) if modal.active_field <= 1 => {
                                         if modal.active_field == 0 {
                                             modal.title.insert(c);
                                         } else {

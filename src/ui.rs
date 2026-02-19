@@ -919,7 +919,7 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal, spinner_tick: usize) {
     let inner = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 
-    // Layout: title field (3), body field (remaining), checkbox (1), local toggle (1), error/spinner (1), hint (1)
+    // Layout: title field (3), body field (remaining), checkbox (1), auto open pr toggle (1), local toggle (1), error/spinner (1), hint (1)
     let has_error = modal.error.is_some();
     let has_status = has_error || modal.submitting;
     let chunks = Layout::default()
@@ -928,6 +928,7 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal, spinner_tick: usize) {
             Constraint::Length(3),                              // title input
             Constraint::Min(3),                                 // body input
             Constraint::Length(1),                              // create worktree toggle
+            Constraint::Length(1),                              // auto open pr toggle
             Constraint::Length(1),                              // local only toggle
             Constraint::Length(if has_status { 1 } else { 0 }), // error or spinner
             Constraint::Length(1),                              // hint
@@ -1028,11 +1029,35 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal, spinner_tick: usize) {
     ]));
     frame.render_widget(checkbox, chunks[2]);
 
+    // Auto open PR checkbox
+    let pr_icon = if modal.auto_open_pr { "[x]" } else { "[ ]" };
+    let pr_style = if modal.submitting {
+        Style::default().fg(Color::DarkGray)
+    } else if modal.active_field == 3 {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let pr_checkbox = Paragraph::new(Line::from(vec![
+        Span::styled(format!("{} ", pr_icon), pr_style),
+        Span::styled(
+            "Auto open PR",
+            if modal.submitting {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::White)
+            },
+        ),
+    ]));
+    frame.render_widget(pr_checkbox, chunks[3]);
+
     // Local only checkbox
     let local_icon = if modal.local_only { "[x]" } else { "[ ]" };
     let local_style = if modal.submitting {
         Style::default().fg(Color::DarkGray)
-    } else if modal.active_field == 3 {
+    } else if modal.active_field == 4 {
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD)
@@ -1050,7 +1075,7 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal, spinner_tick: usize) {
             },
         ),
     ]));
-    frame.render_widget(local_checkbox, chunks[3]);
+    frame.render_widget(local_checkbox, chunks[4]);
 
     // Spinner or error
     if modal.submitting {
@@ -1069,13 +1094,13 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal, spinner_tick: usize) {
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
-        frame.render_widget(spinner_text, chunks[4]);
+        frame.render_widget(spinner_text, chunks[5]);
     } else if let Some(err) = &modal.error {
         let err_text = Paragraph::new(Line::from(vec![Span::styled(
             err.as_str(),
             Style::default().fg(Color::Red),
         )]));
-        frame.render_widget(err_text, chunks[4]);
+        frame.render_widget(err_text, chunks[5]);
     }
 
     // Hint
@@ -1088,7 +1113,7 @@ fn ui_issue_modal(frame: &mut Frame, modal: &IssueModal, spinner_tick: usize) {
         hint_text,
         Style::default().fg(Color::DarkGray),
     )]));
-    frame.render_widget(hint, chunks[5]);
+    frame.render_widget(hint, chunks[6]);
 }
 
 fn ui_edit_issue_modal(frame: &mut Frame, modal: &EditIssueModal, spinner_tick: usize) {
@@ -1631,14 +1656,17 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 Constraint::Length(1), // 9: auto open pr label
                 Constraint::Length(1), // 10: auto open pr toggle
                 Constraint::Length(1), // 11: spacing
-                Constraint::Length(1), // 12: session command label
-                Constraint::Length(3), // 13: session command input
+                Constraint::Length(1), // 12: default local label
+                Constraint::Length(1), // 13: default local toggle
                 Constraint::Length(1), // 14: spacing
-                Constraint::Length(1), // 15: multiplexer label
-                Constraint::Length(1), // 16: multiplexer toggle
+                Constraint::Length(1), // 15: session command label
+                Constraint::Length(3), // 16: session command input
                 Constraint::Length(1), // 17: spacing
-                Constraint::Length(1), // 18: template fields header
-                Constraint::Min(0),    // 19: template fields list + config path
+                Constraint::Length(1), // 18: multiplexer label
+                Constraint::Length(1), // 19: multiplexer toggle
+                Constraint::Length(1), // 20: spacing
+                Constraint::Length(1), // 21: template fields header
+                Constraint::Min(0),    // 22: template fields list + config path
             ])
             .split(inner);
 
@@ -1646,8 +1674,9 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
         let editor_active = config_edit.active_field == 1;
         let pr_ready_active = config_edit.active_field == 2;
         let auto_open_pr_active = config_edit.active_field == 3;
-        let session_active = config_edit.active_field == 4;
-        let mux_active = config_edit.active_field == 5;
+        let default_local_active = config_edit.active_field == 4;
+        let session_active = config_edit.active_field == 5;
+        let mux_active = config_edit.active_field == 6;
 
         // Verify command field
         let verify_label = Paragraph::new(Line::from(vec![Span::styled(
@@ -1808,6 +1837,47 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
         ]));
         frame.render_widget(auto_open_pr_text, chunks[10]);
 
+        // Default Local toggle field
+        let default_local_label = Paragraph::new(Line::from(vec![Span::styled(
+            "Default Local Issues",
+            Style::default()
+                .fg(if default_local_active {
+                    Color::Cyan
+                } else {
+                    Color::Gray
+                })
+                .add_modifier(Modifier::BOLD),
+        )]));
+        frame.render_widget(default_local_label, chunks[12]);
+
+        let default_local_checkbox = if config_edit.default_local {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        let default_local_toggle_color = if default_local_active {
+            Color::White
+        } else {
+            Color::DarkGray
+        };
+        let default_local_text = Paragraph::new(Line::from(vec![
+            Span::styled(
+                default_local_checkbox,
+                Style::default()
+                    .fg(default_local_toggle_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if config_edit.default_local {
+                    "  Enabled — new issues default to local"
+                } else {
+                    "  Disabled — new issues default to GitHub"
+                },
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        frame.render_widget(default_local_text, chunks[13]);
+
         // Session command field
         let session_label = Paragraph::new(Line::from(vec![Span::styled(
             "Session Command",
@@ -1819,7 +1889,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 })
                 .add_modifier(Modifier::BOLD),
         )]));
-        frame.render_widget(session_label, chunks[12]);
+        frame.render_widget(session_label, chunks[15]);
 
         let session_border = if session_active {
             Style::default()
@@ -1850,7 +1920,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
             )
         };
         let session_text = Paragraph::new(Line::from(session_spans)).block(session_block);
-        frame.render_widget(session_text, chunks[13]);
+        frame.render_widget(session_text, chunks[16]);
 
         // Multiplexer toggle field
         let mux_label = Paragraph::new(Line::from(vec![Span::styled(
@@ -1859,7 +1929,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 .fg(if mux_active { Color::Cyan } else { Color::Gray })
                 .add_modifier(Modifier::BOLD),
         )]));
-        frame.render_widget(mux_label, chunks[15]);
+        frame.render_widget(mux_label, chunks[18]);
 
         let mux_toggle_color = if mux_active {
             Color::White
@@ -1884,7 +1954,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 Style::default().fg(Color::DarkGray),
             ),
         ]));
-        frame.render_widget(mux_text, chunks[16]);
+        frame.render_widget(mux_text, chunks[19]);
 
         // Template fields header
         let fields_header = Paragraph::new(Line::from(vec![Span::styled(
@@ -1893,7 +1963,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
                 .fg(Color::Gray)
                 .add_modifier(Modifier::BOLD),
         )]));
-        frame.render_widget(fields_header, chunks[18]);
+        frame.render_widget(fields_header, chunks[21]);
 
         // Template fields list + config path in the remaining space
         let mut lines: Vec<Line> = Vec::new();
@@ -1964,7 +2034,7 @@ pub fn ui_configuration(frame: &mut Frame, app: &App) {
             ),
         ]));
         let fields_list = Paragraph::new(lines);
-        frame.render_widget(fields_list, chunks[19]);
+        frame.render_widget(fields_list, chunks[22]);
     }
 
     // Bottom hint bar
