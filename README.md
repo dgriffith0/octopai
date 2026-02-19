@@ -29,12 +29,12 @@ Turning a GitHub issue into a working pull request involves a lot of manual step
 
 Octopai checks for these on startup and will tell you what's missing.
 
-| Dependency | Why it's needed |
-|---|---|
-| [gh](https://cli.github.com/) | All GitHub operations — fetching issues, creating PRs, merging, etc. |
-| [git](https://git-scm.com/) | Worktree creation and branch management |
-| [python3](https://www.python.org/) | Runs the hook script that reports session status back to the board via Unix socket |
-| [claude](https://docs.anthropic.com/en/docs/claude-code) **or** [cursor](https://www.cursor.com/) | AI coding assistant — at least one is required |
+| Dependency | Required | Why it's needed |
+|---|---|---|
+| [git](https://git-scm.com/) | Yes | Worktree creation and branch management |
+| [python3](https://www.python.org/) | Yes | Runs the hook script that reports session status back to the board via Unix socket |
+| [claude](https://docs.anthropic.com/en/docs/claude-code) **or** [cursor](https://www.cursor.com/) | Yes | AI coding assistant — at least one is required |
+| [gh](https://cli.github.com/) | Recommended | All GitHub operations — fetching issues, creating PRs, merging, etc. Without it, octopai runs in local mode where issues and PRs are stored locally on disk |
 
 ---
 

@@ -321,6 +321,8 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
             ("OK", Color::Green)
         } else if dep.required {
             ("MISSING", Color::Red)
+        } else if dep.recommended {
+            ("RECOMMENDED", Color::Yellow)
         } else {
             ("MISSING", Color::Yellow)
         };
@@ -378,12 +380,21 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
 
     frame.render_widget(Paragraph::new(Line::from(hints)), bottom_rows[0]);
 
+    let has_recommended = deps.iter().any(|d| d.recommended && !d.available);
     if has_missing {
         let warning = Paragraph::new(Line::from(vec![Span::styled(
             " Install missing required dependencies to continue",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )]));
         frame.render_widget(warning, bottom_rows[1]);
+    } else if has_recommended {
+        let note = Paragraph::new(Line::from(vec![Span::styled(
+            " Install gh for full GitHub integration — local mode is active without it",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        frame.render_widget(note, bottom_rows[1]);
     }
 }
 

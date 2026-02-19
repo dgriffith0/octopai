@@ -4,18 +4,21 @@ pub struct Dependency {
     pub name: &'static str,
     pub description: &'static str,
     pub required: bool,
+    pub recommended: bool,
     pub available: bool,
     pub version: Option<String>,
 }
 
 pub fn check_dependencies() -> Vec<Dependency> {
+    let mut gh_dep = check_dep(
+        "gh",
+        "gh",
+        "GitHub CLI for issue/PR management (recommended)",
+        false,
+    );
+    gh_dep.recommended = true;
     let mut deps = vec![
-        check_dep(
-            "gh",
-            "gh",
-            "GitHub CLI for issue/PR management (optional for local mode)",
-            false,
-        ),
+        gh_dep,
         check_dep("git", "git", "Version control with worktree support", true),
     ];
 
@@ -46,6 +49,7 @@ pub fn check_dependencies() -> Vec<Dependency> {
         name: "claude/cursor",
         description: "AI coding assistant (Claude Code or Cursor)",
         required: true,
+        recommended: false,
         available: either_available,
         version: if claude.available {
             claude.version
@@ -102,6 +106,7 @@ fn check_dep(
         name,
         description,
         required,
+        recommended: false,
         available,
         version,
     }
