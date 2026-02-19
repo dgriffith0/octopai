@@ -34,7 +34,7 @@ Octopai checks for these on startup and will tell you what's missing.
 | [git](https://git-scm.com/) | Yes | Worktree creation and branch management |
 | [python3](https://www.python.org/) | Yes | Runs the hook script that reports session status back to the board via Unix socket |
 | [claude](https://docs.anthropic.com/en/docs/claude-code) **or** [cursor](https://www.cursor.com/) | Yes | AI coding assistant — at least one is required |
-| [gh](https://cli.github.com/) | Only for GitHub mode | Fetching issues, creating PRs, merging, etc. Without it, octopai runs in local mode using a JSON-based store |
+| [gh](https://cli.github.com/) | Recommended | Fetching issues, creating PRs, merging, etc. Without it, octopai runs in local mode using a JSON-based store |
 
 ---
 
