@@ -85,9 +85,11 @@ pub fn fetch_worktrees() -> Vec<Card> {
         let tag = "branch";
         let tag_color = Color::Yellow;
 
-        // Link issue-N worktrees to issue cards
+        // Link issue-N worktrees to issue cards, local-N to local issue cards
         let related = if let Some(num) = display_name.strip_prefix("issue-") {
             vec![format!("issue-{}", num)]
+        } else if let Some(num) = display_name.strip_prefix("local-") {
+            vec![format!("local-{}", num)]
         } else {
             Vec::new()
         };

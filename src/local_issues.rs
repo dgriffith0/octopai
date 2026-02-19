@@ -121,7 +121,6 @@ pub fn close_local_issue(repo: &str, id: u64) -> Result<(), String> {
     }
 }
 
-#[allow(dead_code)]
 pub fn fetch_local_issue(repo: &str, id: u64) -> Result<(String, String), String> {
     let store = load_store(repo);
     if let Some(issue) = store.issues.iter().find(|i| i.id == id) {

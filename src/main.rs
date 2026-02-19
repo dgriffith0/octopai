@@ -35,7 +35,7 @@ use github::{
     close_issue, create_issue, edit_issue, fetch_issue, fetch_issues, fetch_prs, fetch_repos,
 };
 use hooks::start_event_socket;
-use local_issues::{close_local_issue, create_local_issue, edit_local_issue};
+use local_issues::{close_local_issue, create_local_issue, edit_local_issue, fetch_local_issue};
 use models::{
     AiSetupState, ConfigEditState, ConfirmAction, ConfirmModal, EditIssueModal, IssueEditResult,
     IssueModal, IssueSubmitResult, MergeStrategy, MessageLog, Mode, RepoSelectPhase, Screen,
@@ -712,6 +712,7 @@ fn main() -> Result<()> {
                                                 "Creating worktree and session for issue {}...",
                                                 label
                                             ));
+                                            let is_local = card.is_local;
                                             std::thread::spawn(move || {
                                                 let result = create_worktree_and_session(
                                                     &repo,
@@ -723,6 +724,7 @@ fn main() -> Result<()> {
                                                     auto_open_pr,
                                                     claude_cmd.as_deref(),
                                                     mux,
+                                                    is_local,
                                                 )
                                                 .map_err(|e| e.to_string());
                                                 let _ = tx.send(
@@ -818,59 +820,70 @@ fn main() -> Result<()> {
                                     if let Some(card) = app.worktrees.get(app.selected_card[1]) {
                                         let branch = card.title.clone();
                                         let worktree_path = card.description.clone();
-                                        // Extract issue number from branch name "issue-N"
-                                        if let Some(num_str) = branch.strip_prefix("issue-") {
-                                            if let Ok(number) = num_str.parse::<u64>() {
-                                                // Check if a session already exists
-                                                let has_session =
-                                                    app.sessions.iter().any(|s| s.title == branch);
-                                                if has_session {
-                                                    app.set_status(format!(
+                                        // Extract issue number from branch name "issue-N" or "local-N"
+                                        let (parsed_number, is_local) = if let Some(num_str) =
+                                            branch.strip_prefix("issue-")
+                                        {
+                                            (num_str.parse::<u64>().ok(), false)
+                                        } else if let Some(num_str) = branch.strip_prefix("local-")
+                                        {
+                                            (num_str.parse::<u64>().ok(), true)
+                                        } else {
+                                            (None, false)
+                                        };
+                                        if let Some(number) = parsed_number {
+                                            // Check if a session already exists
+                                            let has_session =
+                                                app.sessions.iter().any(|s| s.title == branch);
+                                            if has_session {
+                                                app.set_status(format!(
                                                         "Session '{}' already exists — use 'a' to attach",
                                                         branch
                                                     ));
-                                                } else {
-                                                    let repo = app.repo.clone();
-                                                    let hook_script = app.hook_script_path.clone();
-                                                    let mux = app.multiplexer;
-                                                    let branch_clone = branch.clone();
-                                                    let (tx, rx) = mpsc::channel();
-                                                    app.worktree_create_rx = Some(rx);
-                                                    app.loading_message = Some(format!(
-                                                        "Creating session for '{}'...",
-                                                        branch
-                                                    ));
-                                                    std::thread::spawn(move || {
-                                                        let result = fetch_issue(&repo, number)
-                                                            .and_then(|(title, body)| {
-                                                                let pr_ready = get_pr_ready(&repo);
-                                                                let auto_open_pr =
-                                                                    get_auto_open_pr(&repo);
-                                                                let claude_cmd =
-                                                                    get_session_command(&repo);
-                                                                create_session_for_worktree(
-                                                                    &repo,
-                                                                    number,
-                                                                    &title,
-                                                                    &body,
-                                                                    &branch_clone,
-                                                                    &worktree_path,
-                                                                    hook_script.as_deref(),
-                                                                    pr_ready,
-                                                                    auto_open_pr,
-                                                                    claude_cmd.as_deref(),
-                                                                    mux,
-                                                                )
-                                                            })
-                                                            .map_err(|e| e.to_string());
-                                                        let _ = tx.send(
-                                                            WorktreeCreateResult::SessionOnly {
-                                                                branch: branch_clone,
-                                                                result,
-                                                            },
-                                                        );
-                                                    });
-                                                }
+                                            } else {
+                                                let repo = app.repo.clone();
+                                                let hook_script = app.hook_script_path.clone();
+                                                let mux = app.multiplexer;
+                                                let branch_clone = branch.clone();
+                                                let (tx, rx) = mpsc::channel();
+                                                app.worktree_create_rx = Some(rx);
+                                                app.loading_message = Some(format!(
+                                                    "Creating session for '{}'...",
+                                                    branch
+                                                ));
+                                                std::thread::spawn(move || {
+                                                    let result = if is_local {
+                                                        fetch_local_issue(&repo, number)
+                                                    } else {
+                                                        fetch_issue(&repo, number)
+                                                    }
+                                                    .and_then(|(title, body)| {
+                                                        let pr_ready = get_pr_ready(&repo);
+                                                        let auto_open_pr = get_auto_open_pr(&repo);
+                                                        let claude_cmd = get_session_command(&repo);
+                                                        create_session_for_worktree(
+                                                            &repo,
+                                                            number,
+                                                            &title,
+                                                            &body,
+                                                            &branch_clone,
+                                                            &worktree_path,
+                                                            hook_script.as_deref(),
+                                                            pr_ready,
+                                                            auto_open_pr,
+                                                            claude_cmd.as_deref(),
+                                                            mux,
+                                                            is_local,
+                                                        )
+                                                    })
+                                                    .map_err(|e| e.to_string());
+                                                    let _ = tx.send(
+                                                        WorktreeCreateResult::SessionOnly {
+                                                            branch: branch_clone,
+                                                            result,
+                                                        },
+                                                    );
+                                                });
                                             }
                                         } else {
                                             app.set_status(
@@ -1530,6 +1543,7 @@ fn main() -> Result<()> {
                                                                 auto_open_pr,
                                                                 claude_cmd.as_deref(),
                                                                 mux,
+                                                                false,
                                                             ))
                                                         } else {
                                                             None
