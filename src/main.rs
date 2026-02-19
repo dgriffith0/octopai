@@ -29,14 +29,18 @@ use config::{
     get_auto_open_pr, get_editor_command, get_multiplexer, get_pr_ready, get_session_command,
     get_verify_command, load_config, save_config, set_editor_command, set_verify_command,
 };
-use deps::{check_dependencies, detect_ai_tools, gh_available, has_missing_required};
+use deps::{
+    check_dependencies, compound_choices, detect_ai_tools, detect_package_manager, gh_available,
+    has_missing_required, install_command,
+};
 use git::{detect_current_repo, detect_repo_from_git, fetch_worktrees, pull_main, remove_worktree};
 use github::{close_issue, create_issue, edit_issue, fetch_issue, fetch_prs, fetch_repos};
 use hooks::start_event_socket;
 use models::{
-    AiSetupState, ConfigEditState, ConfirmAction, ConfirmModal, EditIssueModal, IssueEditResult,
-    IssueModal, IssueSubmitResult, MergeStrategy, MessageLog, Mode, RepoSelectPhase, Screen,
-    SessionStates, StateFilter, TextInput, WorktreeCreateResult, REFRESH_INTERVAL, SOCKET_PATH,
+    AiSetupState, ConfigEditState, ConfirmAction, ConfirmModal, DepInstallConfirm, EditIssueModal,
+    IssueEditResult, IssueModal, IssueSubmitResult, MergeStrategy, MessageLog, Mode,
+    RepoSelectPhase, Screen, SessionStates, StateFilter, TextInput, WorktreeCreateResult,
+    REFRESH_INTERVAL, SOCKET_PATH,
 };
 use session::{
     create_session_for_worktree, create_worktree_and_session, ensure_main_session,
@@ -124,7 +128,12 @@ fn main() -> Result<()> {
         terminal.draw(|frame| match app.screen {
             Screen::RepoSelect => ui_repo_select(frame, &app.repo_select, app.local_mode),
             Screen::Board => ui(frame, &app),
-            Screen::Dependencies => ui_dependencies(frame, &app.dependencies),
+            Screen::Dependencies => ui_dependencies(
+                frame,
+                &app.dependencies,
+                app.dep_selected,
+                app.dep_install_confirm.as_ref(),
+            ),
             Screen::Configuration => ui_configuration(frame, &app),
             Screen::AiSetup => {
                 if let Some(state) = &app.ai_setup {
@@ -285,28 +294,147 @@ fn main() -> Result<()> {
             }
 
             match app.screen {
-                Screen::Dependencies => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => {
-                        if app.repo.is_empty() {
-                            break;
-                        } else {
-                            app.screen = Screen::Board;
+                Screen::Dependencies => {
+                    if app.dep_install_confirm.is_some() {
+                        // Modal is active
+                        match key.code {
+                            KeyCode::Char('y') => {
+                                let confirm = app.dep_install_confirm.take().unwrap();
+                                let command = confirm.command.clone();
+
+                                // Suspend TUI
+                                disable_raw_mode()?;
+                                io::stdout().execute(LeaveAlternateScreen)?;
+
+                                // Run the install command
+                                let status = std::process::Command::new("sh")
+                                    .arg("-c")
+                                    .arg(&command)
+                                    .status();
+
+                                // Prompt to return
+                                match &status {
+                                    Ok(s) if s.success() => {
+                                        eprintln!(
+                                            "\n\x1b[32mInstall completed.\x1b[0m Press Enter to return..."
+                                        );
+                                    }
+                                    Ok(s) => {
+                                        eprintln!(
+                                            "\n\x1b[33mCommand exited with {}.\x1b[0m Press Enter to return...",
+                                            s
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "\n\x1b[31mFailed to run command: {}\x1b[0m Press Enter to return...",
+                                            e
+                                        );
+                                    }
+                                }
+
+                                // Wait for Enter
+                                let mut buf = String::new();
+                                let _ = std::io::stdin().read_line(&mut buf);
+
+                                // Resume TUI
+                                enable_raw_mode()?;
+                                io::stdout().execute(EnterAlternateScreen)?;
+                                terminal = ratatui::Terminal::new(
+                                    ratatui::backend::CrosstermBackend::new(io::stdout()),
+                                )?;
+                                terminal.clear()?;
+
+                                // Re-check deps
+                                app.dependencies = check_dependencies();
+                                if app.dep_selected >= app.dependencies.len() {
+                                    app.dep_selected = app.dependencies.len().saturating_sub(1);
+                                }
+
+                                let target = confirm.install_target;
+                                let still_missing = app
+                                    .dependencies
+                                    .iter()
+                                    .any(|d| !d.available && d.name.contains(&target));
+                                if still_missing {
+                                    app.set_status(format!(
+                                        "{} still not found after install",
+                                        target
+                                    ));
+                                } else {
+                                    app.set_status(format!("{} installed successfully", target));
+                                }
+                            }
+                            KeyCode::Char('n') | KeyCode::Esc => {
+                                app.dep_install_confirm = None;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // Normal deps screen keys
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => {
+                                if app.repo.is_empty() {
+                                    break;
+                                } else {
+                                    app.screen = Screen::Board;
+                                }
+                            }
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                if !app.dependencies.is_empty()
+                                    && app.dep_selected < app.dependencies.len() - 1
+                                {
+                                    app.dep_selected += 1;
+                                }
+                            }
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                if app.dep_selected > 0 {
+                                    app.dep_selected -= 1;
+                                }
+                            }
+                            KeyCode::Char('i') => {
+                                if let Some(dep) = app.dependencies.get(app.dep_selected) {
+                                    if !dep.available {
+                                        let pm = detect_package_manager();
+                                        let target =
+                                            if let Some(choices) = compound_choices(dep.name) {
+                                                choices[0].to_string()
+                                            } else {
+                                                dep.name.to_string()
+                                            };
+                                        if let Some(cmd) = install_command(&target, pm) {
+                                            app.dep_install_confirm = Some(DepInstallConfirm {
+                                                install_target: target,
+                                                command: cmd,
+                                            });
+                                        } else {
+                                            app.set_status(format!(
+                                                "No known install command for {} — install it manually",
+                                                target
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Char('r') | KeyCode::Char('R') => {
+                                app.dependencies = check_dependencies();
+                                if app.dep_selected >= app.dependencies.len() {
+                                    app.dep_selected = app.dependencies.len().saturating_sub(1);
+                                }
+                            }
+                            KeyCode::Enter => {
+                                if has_missing_required(&app.dependencies) {
+                                    // Stay on deps screen
+                                } else if app.repo.is_empty() {
+                                    app.screen = Screen::RepoSelect;
+                                } else {
+                                    app.screen = Screen::Board;
+                                }
+                            }
+                            _ => {}
                         }
                     }
-                    KeyCode::Char('r') | KeyCode::Char('R') => {
-                        app.dependencies = check_dependencies();
-                    }
-                    KeyCode::Enter => {
-                        if has_missing_required(&app.dependencies) {
-                            // Stay on deps screen
-                        } else if app.repo.is_empty() {
-                            app.screen = Screen::RepoSelect;
-                        } else {
-                            app.screen = Screen::Board;
-                        }
-                    }
-                    _ => {}
-                },
+                }
                 Screen::AiSetup => {
                     if let Some(setup) = &mut app.ai_setup {
                         match key.code {

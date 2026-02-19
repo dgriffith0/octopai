@@ -125,6 +125,74 @@ fn check_dep(
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum PackageManager {
+    Brew,
+    Apt,
+    Dnf,
+    Pacman,
+    Unknown,
+}
+
+pub fn detect_package_manager() -> PackageManager {
+    let has = |cmd: &str| {
+        Command::new("which")
+            .arg(cmd)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if has("brew") {
+        PackageManager::Brew
+    } else if has("apt") {
+        PackageManager::Apt
+    } else if has("dnf") {
+        PackageManager::Dnf
+    } else if has("pacman") {
+        PackageManager::Pacman
+    } else {
+        PackageManager::Unknown
+    }
+}
+
+/// Returns the shell command to install a specific tool, or None if unknown.
+pub fn install_command(dep_name: &str, pm: PackageManager) -> Option<String> {
+    match dep_name {
+        "claude" => Some("npm install -g @anthropic-ai/claude-code".to_string()),
+        "cursor" => None, // No reliable single install command
+        _ => {
+            let pkg = match dep_name {
+                "gh" => "gh",
+                "git" => "git",
+                "tmux" => "tmux",
+                "screen" => "screen",
+                "python3" => match pm {
+                    PackageManager::Brew => "python3",
+                    _ => "python3",
+                },
+                _ => return None,
+            };
+            match pm {
+                PackageManager::Brew => Some(format!("brew install {}", pkg)),
+                PackageManager::Apt => Some(format!("sudo apt install -y {}", pkg)),
+                PackageManager::Dnf => Some(format!("sudo dnf install -y {}", pkg)),
+                PackageManager::Pacman => Some(format!("sudo pacman -S --noconfirm {}", pkg)),
+                PackageManager::Unknown => None,
+            }
+        }
+    }
+}
+
+/// For compound deps like "tmux/screen", returns the individual choices.
+/// First element is the preferred/default choice.
+pub fn compound_choices(dep_name: &str) -> Option<Vec<&'static str>> {
+    match dep_name {
+        "tmux/screen" => Some(vec!["tmux", "screen"]),
+        "claude/cursor" => Some(vec!["claude", "cursor"]),
+        _ => None,
+    }
+}
+
 pub fn has_missing_required(deps: &[Dependency]) -> bool {
     deps.iter().any(|d| d.required && !d.available)
 }

@@ -88,6 +88,11 @@ impl MergeStrategy {
     }
 }
 
+pub struct DepInstallConfirm {
+    pub install_target: String,
+    pub command: String,
+}
+
 pub enum ConfirmAction {
     CloseIssue {
         number: u64,

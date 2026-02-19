@@ -7,9 +7,9 @@ use crate::git::{cleanup_merged_worktrees, fetch_main_behind_count, fetch_worktr
 use crate::github::{fetch_issues, fetch_prs};
 use crate::hooks::ensure_hook_script;
 use crate::models::{
-    AiSetupState, AssigneeFilter, Card, ConfigEditState, ConfirmModal, EditIssueModal,
-    IssueEditResult, IssueModal, IssueSubmitResult, MessageLog, Mode, RepoSelectState, Screen,
-    SessionStates, StateFilter, WorktreeCreateResult, MAX_MESSAGES,
+    AiSetupState, AssigneeFilter, Card, ConfigEditState, ConfirmModal, DepInstallConfirm,
+    EditIssueModal, IssueEditResult, IssueModal, IssueSubmitResult, MessageLog, Mode,
+    RepoSelectState, Screen, SessionStates, StateFilter, WorktreeCreateResult, MAX_MESSAGES,
 };
 use crate::session::{fetch_sessions, Multiplexer};
 
@@ -52,6 +52,8 @@ pub struct App {
     pub nudged_sessions: HashMap<String, usize>,
     pub ai_setup: Option<AiSetupState>,
     pub local_mode: bool,
+    pub dep_selected: usize,
+    pub dep_install_confirm: Option<DepInstallConfirm>,
 }
 
 impl App {
@@ -100,6 +102,8 @@ impl App {
             nudged_sessions: HashMap::new(),
             ai_setup: None,
             local_mode: false,
+            dep_selected: 0,
+            dep_install_confirm: None,
         }
     }
 

@@ -13,8 +13,8 @@ use crate::app::App;
 use crate::config::config_path;
 use crate::deps::Dependency;
 use crate::models::{
-    card_matches, AiSetupState, Card, ConfirmModal, EditIssueModal, IssueModal, Mode,
-    RepoSelectPhase, RepoSelectState, StateFilter, TextInput, REFRESH_INTERVAL,
+    card_matches, AiSetupState, Card, ConfirmModal, DepInstallConfirm, EditIssueModal, IssueModal,
+    Mode, RepoSelectPhase, RepoSelectState, StateFilter, TextInput, REFRESH_INTERVAL,
 };
 use crate::session::{
     default_editor_command, COMMAND_SHORTCUTS, DEFAULT_CLAUDE_COMMAND, DEFAULT_EDITOR_COMMAND,
@@ -255,7 +255,12 @@ pub fn ui_repo_select(frame: &mut Frame, state: &RepoSelectState, local_mode: bo
     }
 }
 
-pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
+pub fn ui_dependencies(
+    frame: &mut Frame,
+    deps: &[Dependency],
+    selected: usize,
+    install_confirm: Option<&DepInstallConfirm>,
+) {
     let area = frame.area();
 
     let vertical = Layout::default()
@@ -306,7 +311,7 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
     // Header
     let header = Paragraph::new(Line::from(vec![Span::styled(
         format!(
-            "{:<14} {:<10} {:<46} {}",
+            "  {:<14} {:<10} {:<46} {}",
             "Command", "Status", "Description", "Version"
         ),
         Style::default()
@@ -317,6 +322,7 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
 
     // Dependency rows
     for (i, dep) in deps.iter().enumerate() {
+        let is_selected = i == selected;
         let (status_text, status_color) = if dep.available {
             ("OK", Color::Green)
         } else if dep.required {
@@ -329,30 +335,56 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
 
         let version = dep.version.as_deref().unwrap_or("-");
 
+        let pointer = if is_selected { "> " } else { "  " };
+        let pointer_color = if is_selected {
+            Color::Cyan
+        } else {
+            Color::Reset
+        };
+
+        let row_bg = if is_selected && !dep.available {
+            Color::Rgb(50, 30, 30)
+        } else if is_selected {
+            Color::Rgb(30, 30, 50)
+        } else {
+            Color::Reset
+        };
+
         let line = Line::from(vec![
+            Span::styled(
+                pointer,
+                Style::default()
+                    .fg(pointer_color)
+                    .bg(row_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(
                 format!("{:<14} ", dep.name),
                 Style::default()
                     .fg(Color::White)
+                    .bg(row_bg)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:<10} ", status_text),
                 Style::default()
                     .fg(status_color)
+                    .bg(row_bg)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:<46} ", dep.description),
-                Style::default().fg(Color::Gray),
+                Style::default().fg(Color::Gray).bg(row_bg),
             ),
-            Span::styled(version, Style::default().fg(Color::DarkGray)),
+            Span::styled(version, Style::default().fg(Color::DarkGray).bg(row_bg)),
         ]);
         frame.render_widget(Paragraph::new(line), rows[1 + i]);
     }
 
     // Bottom hint bar
     let has_missing = deps.iter().any(|d| d.required && !d.available);
+    let has_any_unavailable = deps.iter().any(|d| !d.available);
+    let selected_unavailable = deps.get(selected).is_some_and(|d| !d.available);
     let bottom_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
@@ -363,11 +395,24 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
         .bg(Color::Rgb(60, 60, 60))
         .add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(Color::Gray);
+    let key_accent = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Green)
+        .add_modifier(Modifier::BOLD);
 
     let mut hints: Vec<Span> = vec![
-        Span::styled(" r ", key_style),
-        Span::styled(" Re-check ", desc_style),
+        Span::styled(" j/k ", key_style),
+        Span::styled(" Navigate ", desc_style),
     ];
+    if selected_unavailable {
+        hints.push(Span::styled(" i ", key_accent));
+        hints.push(Span::styled(" Install ", desc_style));
+    } else if has_any_unavailable {
+        hints.push(Span::styled(" i ", key_style));
+        hints.push(Span::styled(" Install ", desc_style));
+    }
+    hints.push(Span::styled(" r ", key_style));
+    hints.push(Span::styled(" Re-check ", desc_style));
     if has_missing {
         hints.push(Span::styled(" Esc/q ", key_style));
         hints.push(Span::styled(" Quit ", desc_style));
@@ -395,6 +440,72 @@ pub fn ui_dependencies(frame: &mut Frame, deps: &[Dependency]) {
                 .add_modifier(Modifier::BOLD),
         )]));
         frame.render_widget(note, bottom_rows[1]);
+    }
+
+    // Install confirmation overlay
+    if let Some(confirm) = install_confirm {
+        let modal_area = centered_rect(50, 25, frame.area());
+        frame.render_widget(Clear, modal_area);
+
+        let outer_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Green))
+            .title(" Install Dependency ")
+            .title_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .padding(Padding::new(1, 1, 1, 0));
+        let inner = outer_block.inner(modal_area);
+        frame.render_widget(outer_block, modal_area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // label
+                Constraint::Length(1), // spacing
+                Constraint::Length(1), // command
+                Constraint::Min(1),    // spacing
+                Constraint::Length(1), // hint
+            ])
+            .split(inner);
+
+        let label = Paragraph::new(Line::from(vec![Span::styled(
+            format!("Install {}?", confirm.install_target),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        frame.render_widget(label, chunks[0]);
+
+        let cmd = Paragraph::new(Line::from(vec![
+            Span::styled("$ ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                &confirm.command,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        frame.render_widget(cmd, chunks[2]);
+
+        let hint = Paragraph::new(Line::from(vec![
+            Span::styled(
+                "y",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" run  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "n",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" cancel", Style::default().fg(Color::DarkGray)),
+        ]));
+        frame.render_widget(hint, chunks[4]);
     }
 }
 

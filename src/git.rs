@@ -9,7 +9,7 @@ use crate::models::Card;
 use crate::session::Multiplexer;
 
 pub fn get_repo_name(repo: &str) -> &str {
-    repo.split('/').last().unwrap_or(repo)
+    repo.split('/').next_back().unwrap_or(repo)
 }
 
 /// Detect the GitHub "owner/repo" for the current working directory by
@@ -72,7 +72,7 @@ pub fn fetch_worktrees() -> Vec<Card> {
         }
 
         let display_name = if branch.is_empty() {
-            path.split('/').last().unwrap_or(&path).to_string()
+            path.split('/').next_back().unwrap_or(&path).to_string()
         } else {
             branch.clone()
         };
