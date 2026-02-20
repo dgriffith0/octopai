@@ -636,6 +636,8 @@ pub fn ui(frame: &mut Frame, app: &App) {
     let mut overlay_spans: Vec<Span> = Vec::new();
     if matches!(app.mode, Mode::Normal | Mode::Filtering { .. }) {
         overlay_spans = vec![
+            Span::styled(" T ", key_style),
+            Span::styled(" Terminal ", desc_style),
             Span::styled(" D ", key_style),
             Span::styled(" Deps ", desc_style),
             Span::styled(" C ", key_style),
@@ -845,8 +847,6 @@ pub fn ui(frame: &mut Frame, app: &App) {
                 Span::styled(" Pull ", desc_style),
                 Span::styled(" n ", key_accent),
                 Span::styled(" New issue ", desc_style),
-                Span::styled(" T ", key_accent),
-                Span::styled(" Terminal ", desc_style),
             ]
         }
         Mode::Filtering { focused, .. } if *focused => vec![
