@@ -614,23 +614,81 @@ pub fn ui(frame: &mut Frame, app: &App) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Min(0),
             Constraint::Length(msg_height),
             Constraint::Length(2),
         ])
         .split(frame.area());
 
-    // Top bar — selected repository (compact single line)
+    // Key styles (defined early so overlay spans can be built for the repo bar)
+    let key_style = Style::default()
+        .fg(Color::White)
+        .bg(Color::Rgb(60, 60, 60))
+        .add_modifier(Modifier::BOLD);
+    let desc_style = Style::default().fg(Color::Gray);
+    let key_accent = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Green)
+        .add_modifier(Modifier::BOLD);
+
+    // Build overlay spans (displayed in repo bar, top right)
+    let mut overlay_spans: Vec<Span> = Vec::new();
+    if matches!(app.mode, Mode::Normal | Mode::Filtering { .. }) {
+        overlay_spans = vec![
+            Span::styled(" D ", key_style),
+            Span::styled(" Deps ", desc_style),
+            Span::styled(" C ", key_style),
+            Span::styled(" Config ", desc_style),
+            Span::styled(" L ", key_style),
+            Span::styled(
+                if app.local_mode {
+                    " GitHub "
+                } else {
+                    " Local "
+                },
+                desc_style,
+            ),
+            Span::styled(" x ", key_style),
+            Span::styled(
+                if app.show_messages {
+                    " Hide msgs "
+                } else {
+                    " Show msgs "
+                },
+                desc_style,
+            ),
+        ];
+        if app.show_messages {
+            overlay_spans.push(Span::styled(" X ", key_style));
+            overlay_spans.push(Span::styled(
+                if app.messages_expanded {
+                    " Collapse "
+                } else {
+                    " Expand "
+                },
+                desc_style,
+            ));
+        }
+    }
+
+    // Top bar — selected repository (bordered, with overlay keybinds on the right)
+    let repo_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Repository ");
+    let repo_inner = repo_block.inner(outer[0]);
+    frame.render_widget(repo_block, outer[0]);
+
+    // Split repo inner area: left = repo info, right = overlay keybinds
+    let overlay_width: u16 = overlay_spans.iter().map(|s| s.content.len() as u16).sum();
+    let repo_cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(overlay_width)])
+        .split(repo_inner);
+
     let mut repo_spans = vec![
-        Span::styled(
-            " Repository ",
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" ", Style::default()),
+        Span::styled("  ", Style::default()),
         Span::styled(
             &app.repo,
             Style::default()
@@ -669,7 +727,14 @@ pub fn ui(frame: &mut Frame, app: &App) {
         Style::default().fg(Color::DarkGray),
     ));
     let repo_text = Paragraph::new(Line::from(repo_spans));
-    frame.render_widget(repo_text, outer[0]);
+    frame.render_widget(repo_text, repo_cols[0]);
+
+    // Overlay keybinds on the right side of the repo bar
+    if !overlay_spans.is_empty() {
+        let overlay_legend =
+            Paragraph::new(Line::from(overlay_spans)).alignment(ratatui::layout::Alignment::Right);
+        frame.render_widget(overlay_legend, repo_cols[1]);
+    }
 
     // Four columns
     let columns = Layout::default()
@@ -754,61 +819,15 @@ pub fn ui(frame: &mut Frame, app: &App) {
     }
 
     // Bottom legend bar (two lines: global on top, area-specific on bottom)
-    let key_style = Style::default()
-        .fg(Color::White)
-        .bg(Color::Rgb(60, 60, 60))
-        .add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(Color::Gray);
-    let key_accent = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Green)
-        .add_modifier(Modifier::BOLD);
+    // Key styles already defined above for overlay spans.
 
     // Top line: global actions (or mode-specific actions for non-Normal modes)
     // Color strategy: green (key_accent) = primary actions that create/modify/open
     //                  gray  (key_style)  = navigation, toggles, info
     let mut global_spans: Vec<Span> = Vec::new();
-    let mut overlay_spans: Vec<Span> = Vec::new();
 
     let global_mode_spans: Vec<Span> = match &app.mode {
         Mode::Normal => {
-            // Overlay section (top right): overlays and view toggles
-            overlay_spans = vec![
-                Span::styled(" D ", key_style),
-                Span::styled(" Deps ", desc_style),
-                Span::styled(" C ", key_style),
-                Span::styled(" Config ", desc_style),
-                Span::styled(" L ", key_style),
-                Span::styled(
-                    if app.local_mode {
-                        " GitHub "
-                    } else {
-                        " Local "
-                    },
-                    desc_style,
-                ),
-                Span::styled(" x ", key_style),
-                Span::styled(
-                    if app.show_messages {
-                        " Hide msgs "
-                    } else {
-                        " Show msgs "
-                    },
-                    desc_style,
-                ),
-            ];
-            if app.show_messages {
-                overlay_spans.push(Span::styled(" X ", key_style));
-                overlay_spans.push(Span::styled(
-                    if app.messages_expanded {
-                        " Collapse "
-                    } else {
-                        " Expand "
-                    },
-                    desc_style,
-                ));
-            }
-
             vec![
                 Span::styled(" q/Esc ", key_style),
                 Span::styled(" Quit ", desc_style),
@@ -961,28 +980,14 @@ pub fn ui(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Length(1), Constraint::Length(1)])
         .split(outer[3]);
 
-    // Top row: global actions (left) | overlay toggles (right) | timer (far right)
-    // Calculate overlay width from span content
-    let overlay_width: u16 = overlay_spans.iter().map(|s| s.content.len() as u16).sum();
+    // Top row: global actions with timer on right
     let top_bottom = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(overlay_width + 2), // +2 for separator padding
-            Constraint::Length(14),
-        ])
+        .constraints([Constraint::Min(0), Constraint::Length(14)])
         .split(bottom_rows[0]);
 
     let global_legend = Paragraph::new(Line::from(global_spans));
     frame.render_widget(global_legend, top_bottom[0]);
-
-    // Overlay toggles section (top right)
-    if !overlay_spans.is_empty() {
-        let mut right_spans = vec![Span::styled("│ ", desc_style)];
-        right_spans.extend(overlay_spans);
-        let overlay_legend = Paragraph::new(Line::from(right_spans));
-        frame.render_widget(overlay_legend, top_bottom[1]);
-    }
 
     // Refresh countdown timer
     let remaining = REFRESH_INTERVAL
@@ -999,7 +1004,7 @@ pub fn ui(frame: &mut Frame, app: &App) {
     };
     let timer = Paragraph::new(Line::from(Span::styled(timer_text, timer_style)))
         .alignment(ratatui::layout::Alignment::Right);
-    frame.render_widget(timer, top_bottom[2]);
+    frame.render_widget(timer, top_bottom[1]);
 
     // Bottom row: area-specific actions
     let area_legend = Paragraph::new(Line::from(area_spans));
