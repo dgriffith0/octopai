@@ -1483,6 +1483,14 @@ fn main() -> Result<()> {
                                                         // Mark the local PR as merged
                                                         let _ =
                                                             local::merge_local_pr(&repo, number);
+                                                        // Close the linked local issue
+                                                        if let Some(issue_num) =
+                                                            git::extract_issue_number(branch_name)
+                                                        {
+                                                            let _ = local::close_local_issue(
+                                                                &repo, issue_num,
+                                                            );
+                                                        }
                                                         // Clean up the worktree
                                                         if let Some(wt) = app
                                                             .worktrees
@@ -1511,7 +1519,18 @@ fn main() -> Result<()> {
                                                 }
                                             } else {
                                                 // No branch, just mark as merged
-                                                let _ = local::merge_local_pr(&repo, number);
+                                                if let Ok(branch_name) =
+                                                    local::merge_local_pr(&repo, number)
+                                                {
+                                                    // Close the linked local issue
+                                                    if let Some(issue_num) =
+                                                        git::extract_issue_number(&branch_name)
+                                                    {
+                                                        let _ = local::close_local_issue(
+                                                            &repo, issue_num,
+                                                        );
+                                                    }
+                                                }
                                                 app.set_status(format!(
                                                     "Merged local PR #{}",
                                                     number
