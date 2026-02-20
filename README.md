@@ -71,7 +71,7 @@ cargo install --path .
 
 ## Quick start
 
-Run `octopai` inside a git repo and it will automatically detect the repository and open the board. If `gh` is installed and authenticated, octopai connects to GitHub for issues and PRs. Without `gh`, it runs in **local mode**, storing issues and PRs in a JSON file at `~/.config/octopai/local/`. You can also toggle local mode in the configuration screen (`C` → `P`).
+Run `octopai` inside a git repo and it will automatically detect the repository and open the board. If `gh` is installed and authenticated, octopai connects to GitHub for issues and PRs. Without `gh`, it runs in **local mode**, storing issues and PRs in a JSON file at `~/.config/octopai/local/`. You can also toggle local mode with `L`.
 
 If you run it outside a repo, you'll be prompted to enter a GitHub user or organization name and pick a repository. Press `Enter` on the board to switch repos at any time.
 
