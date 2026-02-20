@@ -104,11 +104,14 @@ Four columns: **Issues**, **Worktrees**, **Sessions**, and **Pull Requests**. Us
 | `C` | Edit repo configuration |
 | `p` | Pull main branch |
 | `D` | Show dependency check |
+| `T` | Open terminal (main worktree session) |
+| `L` | Toggle local/GitHub mode |
 | `x` | Toggle message log |
+| `X` | Expand/collapse message log |
 
-**Issues** — `n` new issue (with option to skip worktree), `w` create worktree + session, `d` close, `s` toggle open/closed, `m` toggle assigned-to-me
+**Issues** — `n` new issue (with option to skip worktree), `w` create worktree + session, `e` edit, `d` close, `s` toggle open/closed, `m` toggle assigned-to-me
 
-**Worktrees** — `w` create session, `d` remove, `v` verify, `e` open editor
+**Worktrees** — `w` create session, `d` remove, `v` verify, `e` open editor, `P` create local PR (local mode)
 
 **Sessions** — `a` attach, `d` kill
 
