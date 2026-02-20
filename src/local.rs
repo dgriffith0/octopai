@@ -103,7 +103,7 @@ pub fn fetch_local_issues(repo: &str, state: StateFilter, _assignee: AssigneeFil
             };
 
             Card {
-                id: format!("issue-{}", issue.number),
+                id: format!("local-issue-{}", issue.number),
                 title: format!("#{} {}", issue.number, issue.title),
                 description,
                 full_description,
@@ -197,7 +197,9 @@ pub fn fetch_local_prs(repo: &str, state: StateFilter, _assignee: AssigneeFilter
                 ("local", Color::Cyan)
             };
 
-            let related = if let Some(num) = pr.branch.strip_prefix("issue-") {
+            let related = if pr.branch.starts_with("local-issue-") {
+                vec![pr.branch.clone()]
+            } else if let Some(num) = pr.branch.strip_prefix("issue-") {
                 vec![format!("issue-{}", num)]
             } else {
                 Vec::new()

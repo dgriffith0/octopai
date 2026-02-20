@@ -61,7 +61,7 @@ pub fn ensure_hook_script() -> std::result::Result<PathBuf, String> {
 # Roctopai event hook - sends Claude session events to the Unix socket
 STATUS="$1"
 cat > /dev/null
-SESSION=$(basename "$PWD" | grep -o 'issue-[0-9]*')
+SESSION=$(basename "$PWD" | grep -oE '(local-)?issue-[0-9]+')
 [ -z "$SESSION" ] && exit 0
 SOCKET="{socket}"
 [ -S "$SOCKET" ] || exit 0

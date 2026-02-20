@@ -226,7 +226,7 @@ pub fn fetch_sessions(socket_states: &SessionStates, mux: Multiplexer) -> Vec<Ca
 
     session_names
         .into_iter()
-        .filter(|name| name.starts_with("issue-"))
+        .filter(|name| name.starts_with("issue-") || name.starts_with("local-issue-"))
         .map(|name| {
             // Use socket-derived state if available, otherwise fall back
             // to pane content detection.
@@ -532,7 +532,7 @@ pub fn create_session_for_worktree(
     };
 
     // Write prompt to a temp file for safe shell expansion
-    let prompt_file = format!("/tmp/octopai-prompt-{}.txt", number);
+    let prompt_file = format!("/tmp/octopai-prompt-{}.txt", branch);
     fs::write(&prompt_file, &prompt).map_err(|e| format!("Failed to write prompt file: {}", e))?;
 
     // Send session command to the single pane
@@ -573,8 +573,16 @@ pub fn create_worktree_and_session(
     local_mode: bool,
 ) -> std::result::Result<(), String> {
     let repo_name = get_repo_name(repo);
-    let branch = format!("issue-{}", number);
-    let worktree_path = format!("../{}-issue-{}", repo_name, number);
+    let branch = if local_mode {
+        format!("local-issue-{}", number)
+    } else {
+        format!("issue-{}", number)
+    };
+    let worktree_path = if local_mode {
+        format!("../{}-local-issue-{}", repo_name, number)
+    } else {
+        format!("../{}-issue-{}", repo_name, number)
+    };
 
     // Create worktree with new branch
     let output = Command::new("git")
@@ -647,7 +655,7 @@ pub fn create_worktree_and_session(
     };
 
     // Write prompt to a temp file for safe shell expansion
-    let prompt_file = format!("/tmp/octopai-prompt-{}.txt", number);
+    let prompt_file = format!("/tmp/octopai-prompt-{}.txt", branch);
     fs::write(&prompt_file, &prompt).map_err(|e| format!("Failed to write prompt file: {}", e))?;
 
     // Send session command to the single pane

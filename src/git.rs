@@ -12,6 +12,14 @@ pub fn get_repo_name(repo: &str) -> &str {
     repo.split('/').next_back().unwrap_or(repo)
 }
 
+/// Extract the issue number from an issue-style identifier like "issue-42" or "local-issue-42".
+/// Returns `None` if the string doesn't match either pattern.
+pub fn extract_issue_number(s: &str) -> Option<u64> {
+    s.strip_prefix("local-issue-")
+        .or_else(|| s.strip_prefix("issue-"))
+        .and_then(|n| n.parse().ok())
+}
+
 /// Detect the GitHub "owner/repo" for the current working directory by
 /// asking `gh` which repository this directory belongs to.
 pub fn detect_current_repo() -> Option<String> {
@@ -85,8 +93,10 @@ pub fn fetch_worktrees() -> Vec<Card> {
         let tag = "branch";
         let tag_color = Color::Yellow;
 
-        // Link issue-N worktrees to issue cards
-        let related = if let Some(num) = display_name.strip_prefix("issue-") {
+        // Link issue-N / local-issue-N worktrees to issue cards
+        let related = if display_name.starts_with("local-issue-") {
+            vec![display_name.clone()]
+        } else if let Some(num) = display_name.strip_prefix("issue-") {
             vec![format!("issue-{}", num)]
         } else {
             Vec::new()
