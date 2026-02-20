@@ -55,7 +55,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args
         .iter()
-        .any(|a| a == "--version" || a == "-V" || a == "-v")
+        .any(|a| a == "--version" || a == "--v" || a == "-V" || a == "-v")
     {
         println!("octopai {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
