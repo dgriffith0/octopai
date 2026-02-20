@@ -53,7 +53,10 @@ use ui::{ui, ui_configuration, ui_dependencies, ui_repo_select};
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--version" || a == "-V") {
+    if args
+        .iter()
+        .any(|a| a == "--version" || a == "-V" || a == "-v")
+    {
         println!("octopai {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
