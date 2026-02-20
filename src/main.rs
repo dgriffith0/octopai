@@ -33,7 +33,10 @@ use deps::{
     check_dependencies, compound_choices, detect_ai_tools, detect_package_manager, gh_available,
     has_missing_required, install_command,
 };
-use git::{detect_current_repo, detect_repo_from_git, fetch_worktrees, pull_main, remove_worktree};
+use git::{
+    detect_current_repo, detect_repo_from_git, extract_issue_number, fetch_worktrees, pull_main,
+    remove_worktree,
+};
 use github::{close_issue, create_issue, edit_issue, fetch_issue, fetch_prs, fetch_repos};
 use hooks::start_event_socket;
 use models::{
@@ -827,49 +830,45 @@ fn main() -> Result<()> {
                                         && app.worktree_create_rx.is_none() =>
                                 {
                                     if let Some(card) = app.issues.get(app.selected_card[0]) {
-                                        // Extract issue number from id "issue-N"
-                                        if let Some(num_str) = card.id.strip_prefix("issue-") {
-                                            if let Ok(number) = num_str.parse::<u64>() {
-                                                let title = card.title.clone();
-                                                let body = card
-                                                    .full_description
-                                                    .clone()
-                                                    .unwrap_or_default();
-                                                let repo = app.repo.clone();
-                                                let pr_ready = get_pr_ready(&repo);
-                                                let auto_open_pr = get_auto_open_pr(&repo);
-                                                let claude_cmd = get_session_command(&repo);
-                                                let hook_script = app.hook_script_path.clone();
-                                                let mux = app.multiplexer;
-                                                let is_local = app.local_mode;
-                                                let (tx, rx) = mpsc::channel();
-                                                app.worktree_create_rx = Some(rx);
-                                                app.loading_message = Some(format!(
-                                                    "Creating worktree and session for issue #{}...",
-                                                    number
-                                                ));
-                                                std::thread::spawn(move || {
-                                                    let result = create_worktree_and_session(
-                                                        &repo,
+                                        // Extract issue number from id "issue-N" or "local-issue-N"
+                                        if let Some(number) = extract_issue_number(&card.id) {
+                                            let title = card.title.clone();
+                                            let body =
+                                                card.full_description.clone().unwrap_or_default();
+                                            let repo = app.repo.clone();
+                                            let pr_ready = get_pr_ready(&repo);
+                                            let auto_open_pr = get_auto_open_pr(&repo);
+                                            let claude_cmd = get_session_command(&repo);
+                                            let hook_script = app.hook_script_path.clone();
+                                            let mux = app.multiplexer;
+                                            let is_local = app.local_mode;
+                                            let (tx, rx) = mpsc::channel();
+                                            app.worktree_create_rx = Some(rx);
+                                            app.loading_message = Some(format!(
+                                                "Creating worktree and session for issue #{}...",
+                                                number
+                                            ));
+                                            std::thread::spawn(move || {
+                                                let result = create_worktree_and_session(
+                                                    &repo,
+                                                    number,
+                                                    &title,
+                                                    &body,
+                                                    hook_script.as_deref(),
+                                                    pr_ready,
+                                                    auto_open_pr,
+                                                    claude_cmd.as_deref(),
+                                                    mux,
+                                                    is_local,
+                                                )
+                                                .map_err(|e| e.to_string());
+                                                let _ = tx.send(
+                                                    WorktreeCreateResult::WorktreeAndSession {
                                                         number,
-                                                        &title,
-                                                        &body,
-                                                        hook_script.as_deref(),
-                                                        pr_ready,
-                                                        auto_open_pr,
-                                                        claude_cmd.as_deref(),
-                                                        mux,
-                                                        is_local,
-                                                    )
-                                                    .map_err(|e| e.to_string());
-                                                    let _ = tx.send(
-                                                        WorktreeCreateResult::WorktreeAndSession {
-                                                            number,
-                                                            result,
-                                                        },
-                                                    );
-                                                });
-                                            }
+                                                        result,
+                                                    },
+                                                );
+                                            });
                                         }
                                     }
                                 }
@@ -878,40 +877,32 @@ fn main() -> Result<()> {
                                         && app.issue_state_filter == StateFilter::Open =>
                                 {
                                     if let Some(card) = app.issues.get(app.selected_card[0]) {
-                                        if let Some(num_str) = card.id.strip_prefix("issue-") {
-                                            if let Ok(number) = num_str.parse::<u64>() {
-                                                app.confirm_modal = Some(ConfirmModal {
-                                                    message: format!(
-                                                        "Close issue #{}?\n\n{}",
-                                                        number, card.title
-                                                    ),
-                                                    on_confirm: ConfirmAction::CloseIssue {
-                                                        number,
-                                                    },
-                                                });
-                                                app.mode = Mode::Confirming;
-                                            }
+                                        if let Some(number) = extract_issue_number(&card.id) {
+                                            app.confirm_modal = Some(ConfirmModal {
+                                                message: format!(
+                                                    "Close issue #{}?\n\n{}",
+                                                    number, card.title
+                                                ),
+                                                on_confirm: ConfirmAction::CloseIssue { number },
+                                            });
+                                            app.mode = Mode::Confirming;
                                         }
                                     }
                                 }
                                 KeyCode::Char('e') if app.active_section == 0 => {
                                     if let Some(card) = app.issues.get(app.selected_card[0]) {
-                                        if let Some(num_str) = card.id.strip_prefix("issue-") {
-                                            if let Ok(number) = num_str.parse::<u64>() {
-                                                // Extract title without the "#N " prefix
-                                                let title = card
-                                                    .title
-                                                    .strip_prefix(&format!("#{} ", number))
-                                                    .unwrap_or(&card.title)
-                                                    .to_string();
-                                                let body = card
-                                                    .full_description
-                                                    .clone()
-                                                    .unwrap_or_default();
-                                                app.edit_issue_modal =
-                                                    Some(EditIssueModal::new(number, title, body));
-                                                app.mode = Mode::EditingIssue;
-                                            }
+                                        if let Some(number) = extract_issue_number(&card.id) {
+                                            // Extract title without the "#N " prefix
+                                            let title = card
+                                                .title
+                                                .strip_prefix(&format!("#{} ", number))
+                                                .unwrap_or(&card.title)
+                                                .to_string();
+                                            let body =
+                                                card.full_description.clone().unwrap_or_default();
+                                            app.edit_issue_modal =
+                                                Some(EditIssueModal::new(number, title, body));
+                                            app.mode = Mode::EditingIssue;
                                         }
                                     }
                                 }
@@ -922,65 +913,61 @@ fn main() -> Result<()> {
                                     if let Some(card) = app.worktrees.get(app.selected_card[1]) {
                                         let branch = card.title.clone();
                                         let worktree_path = card.description.clone();
-                                        // Extract issue number from branch name "issue-N"
-                                        if let Some(num_str) = branch.strip_prefix("issue-") {
-                                            if let Ok(number) = num_str.parse::<u64>() {
-                                                // Check if a session already exists
-                                                let has_session =
-                                                    app.sessions.iter().any(|s| s.title == branch);
-                                                if has_session {
-                                                    app.set_status(format!(
-                                                        "Session '{}' already exists — use 'a' to attach",
-                                                        branch
-                                                    ));
-                                                } else {
-                                                    let repo = app.repo.clone();
-                                                    let hook_script = app.hook_script_path.clone();
-                                                    let mux = app.multiplexer;
-                                                    let branch_clone = branch.clone();
-                                                    let is_local = app.local_mode;
-                                                    let (tx, rx) = mpsc::channel();
-                                                    app.worktree_create_rx = Some(rx);
-                                                    app.loading_message = Some(format!(
-                                                        "Creating session for '{}'...",
-                                                        branch
-                                                    ));
-                                                    std::thread::spawn(move || {
-                                                        let result = if is_local {
-                                                            local::fetch_local_issue(&repo, number)
-                                                        } else {
-                                                            fetch_issue(&repo, number)
-                                                        }
-                                                        .and_then(|(title, body)| {
-                                                            let pr_ready = get_pr_ready(&repo);
-                                                            let auto_open_pr =
-                                                                get_auto_open_pr(&repo);
-                                                            let claude_cmd =
-                                                                get_session_command(&repo);
-                                                            create_session_for_worktree(
-                                                                &repo,
-                                                                number,
-                                                                &title,
-                                                                &body,
-                                                                &branch_clone,
-                                                                &worktree_path,
-                                                                hook_script.as_deref(),
-                                                                pr_ready,
-                                                                auto_open_pr,
-                                                                claude_cmd.as_deref(),
-                                                                mux,
-                                                                is_local,
-                                                            )
-                                                        })
-                                                        .map_err(|e| e.to_string());
-                                                        let _ = tx.send(
-                                                            WorktreeCreateResult::SessionOnly {
-                                                                branch: branch_clone,
-                                                                result,
-                                                            },
-                                                        );
-                                                    });
-                                                }
+                                        // Extract issue number from branch name "issue-N" or "local-issue-N"
+                                        if let Some(number) = extract_issue_number(&branch) {
+                                            // Check if a session already exists
+                                            let has_session =
+                                                app.sessions.iter().any(|s| s.title == branch);
+                                            if has_session {
+                                                app.set_status(format!(
+                                                    "Session '{}' already exists — use 'a' to attach",
+                                                    branch
+                                                ));
+                                            } else {
+                                                let repo = app.repo.clone();
+                                                let hook_script = app.hook_script_path.clone();
+                                                let mux = app.multiplexer;
+                                                let branch_clone = branch.clone();
+                                                let is_local = app.local_mode;
+                                                let (tx, rx) = mpsc::channel();
+                                                app.worktree_create_rx = Some(rx);
+                                                app.loading_message = Some(format!(
+                                                    "Creating session for '{}'...",
+                                                    branch
+                                                ));
+                                                std::thread::spawn(move || {
+                                                    let result = if is_local {
+                                                        local::fetch_local_issue(&repo, number)
+                                                    } else {
+                                                        fetch_issue(&repo, number)
+                                                    }
+                                                    .and_then(|(title, body)| {
+                                                        let pr_ready = get_pr_ready(&repo);
+                                                        let auto_open_pr = get_auto_open_pr(&repo);
+                                                        let claude_cmd = get_session_command(&repo);
+                                                        create_session_for_worktree(
+                                                            &repo,
+                                                            number,
+                                                            &title,
+                                                            &body,
+                                                            &branch_clone,
+                                                            &worktree_path,
+                                                            hook_script.as_deref(),
+                                                            pr_ready,
+                                                            auto_open_pr,
+                                                            claude_cmd.as_deref(),
+                                                            mux,
+                                                            is_local,
+                                                        )
+                                                    })
+                                                    .map_err(|e| e.to_string());
+                                                    let _ = tx.send(
+                                                        WorktreeCreateResult::SessionOnly {
+                                                            branch: branch_clone,
+                                                            result,
+                                                        },
+                                                    );
+                                                });
                                             }
                                         } else {
                                             app.set_status(

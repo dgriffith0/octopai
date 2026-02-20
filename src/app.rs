@@ -169,13 +169,13 @@ impl App {
 
         // Find the issue key that ties all related cards together.
         // If this IS an issue card, its own id is the key.
-        // Otherwise, look for an issue-N entry in the related field.
-        let issue_key = if card.id.starts_with("issue-") {
+        // Otherwise, look for an issue-N or local-issue-N entry in the related field.
+        let issue_key = if card.id.starts_with("local-issue-") || card.id.starts_with("issue-") {
             Some(card.id.clone())
         } else {
             card.related
                 .iter()
-                .find(|r| r.starts_with("issue-"))
+                .find(|r| r.starts_with("local-issue-") || r.starts_with("issue-"))
                 .cloned()
         };
 
